@@ -146,8 +146,8 @@
 
     <div class="totals" style="margin-top:10px;">
       <div>
-        <div class="muted">
-          Tip: On iPhone, tap <strong>Print / Save PDF</strong>, then choose <strong>Print</strong> → pinch-out preview → Share → Save to Files.
+        <div class="muted tip">
+        Tip: On iPhone, tap <strong>Print / Save PDF</strong>...
         </div>
       </div>
 
@@ -179,9 +179,14 @@
   </div>
 
   <div class="card printOnly">
-    <h2 style="margin:0 0 8px 0;">Good ’Nuff Mobile Mechanic</h2>
-    <div class="muted" id="printMeta"></div>
+  <h2 style="margin:0 0 6px 0;">Good ’Nuff Mobile Mechanic</h2>
+  <div style="font-size:12px; line-height:1.4;">
+    Asheville, NC • (YOUR PHONE) • (YOUR EMAIL)<br>
+    Invoice: <strong><span id="printInvoiceNo"></span></strong> • Date: <span id="printInvoiceDate"></span> • Status: <span id="printStatus"></span><br>
+    Customer: <span id="printCustomer"></span> • Vehicle: <span id="printVehicle"></span> • Location: <span id="printLocation"></span>
   </div>
+  <hr style="border:none;border-top:1px solid #ddd;margin:10px 0;">
+</div>
 </main>
 
 <script>
