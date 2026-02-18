@@ -45,6 +45,29 @@
     }
     .status.paid{background:#eaffea;border-color:#b7f0b7}
     .status.unpaid{background:#fff6f6;border-color:#ffd0d0}
+    .service-header {
+  display: flex;
+  justify-content: flex-end;   /* pushes everything right */
+  gap: 40px;
+  text-align: right;
+  margin-top: 10px;
+}
+
+.service-info,
+.tax-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.label {
+  font-size: 13px;
+  color: #666;
+}
+
+.value {
+  font-size: 18px;
+  font-weight: 600;
+}
   </style>
 </head>
 <body>
@@ -64,12 +87,17 @@
     </div>
   </div>
 
-  <div style="text-align:right">
-    <div class="muted">Service Type</div>
-    <div style="font-weight:900">Mobile Automotive Repair</div>
-    <div class="muted" style="margin-top:6px">Tax Rate</div>
-    <div style="font-weight:900"><span id="taxRateTop">7%</span></div>
+  <div class="service-header">
+  <div class="service-info">
+    <div class="label">Service Type</div>
+    <div class="value">Mobile Automotive Repair</div>
   </div>
+
+  <div class="tax-info">
+    <div class="label">Tax Rate</div>
+    <div class="value">7%</div>
+  </div>
+</div>
 </div>
 
 <div class="hr"></div>
