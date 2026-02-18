@@ -344,6 +344,11 @@
       .topbar{ margin-bottom: 10px; }
       .readonlyBox{ border:none; padding:0; background:none; }
     }
+    @media print {
+  .muted {
+    display: none !important;
+  }
+}
   </style>
 </head>
 
@@ -490,9 +495,9 @@
           <div class="total"><span>Total due</span><span id="totalOut">$0.00</span></div>
         </div>
 
-        <div class="mutedNote">
+        <p class="mutedNote">
           Export CSV is for bookkeeping/taxes. Print uses iPhone “Share → Print → Save as PDF”.
-        </div>
+        </p>
       </div>
     </div>
   </div>
