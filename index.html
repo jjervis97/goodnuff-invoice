@@ -53,6 +53,26 @@
 <div class="wrap">
 
   <div class="card">
+    <div style="display:flex;justify-content:space-between;gap:14px;flex-wrap:wrap">
+  <div>
+    <div style="font-weight:900;font-size:18px">Good 'Nuff Mobile Mechanic</div>
+    <div class="muted" style="margin-top:4px">
+      Jeremiah Robert Jervis<br>
+      Asheville, NC<br>
+      Phone: <span id="bizPhone"></span><br>
+      Email: <span id="bizEmail"></span>
+    </div>
+  </div>
+
+  <div style="text-align:right">
+    <div class="muted">Service Type</div>
+    <div style="font-weight:900">Mobile Automotive Repair</div>
+    <div class="muted" style="margin-top:6px">Tax Rate</div>
+    <div style="font-weight:900"><span id="taxRateTop">7%</span></div>
+  </div>
+</div>
+
+<div class="hr"></div>
     <div class="grid">
       <div>
         <label>Invoice #</label>
@@ -180,15 +200,21 @@
 <script>
   // ====== SETTINGS ======
   const SETTINGS = {
-    prefix: "GOODNUFF",
-    year: new Date().getFullYear(),
-    taxRate: 0.07,               // 7%
-    defaults: {
-      Labor: false,              // taxable?
-      Parts: true,
-      Supplies: true
-    }
-  };
+  businessName: "Good 'Nuff Mobile Mechanic",
+  ownerName: "Jeremiah Robert Jervis",
+  cityState: "Asheville, NC",
+  phone: "(###) ###-####",
+  email: "youremail@example.com",
+
+  prefix: "GOODNUFF",
+  year: new Date().getFullYear(),
+  taxRate: 0.07,               // 7%
+  defaults: {
+    Labor: false,
+    Parts: true,
+    Supplies: true
+  }
+};
 
   // ====== STORAGE KEYS ======
   const KEY_SEQ = "goodnuff_invoice_seq_v1";
@@ -436,6 +462,9 @@
 
   // ====== INIT ======
   function init(){
+    $("bizPhone").textContent = SETTINGS.phone;
+$("bizEmail").textContent = SETTINGS.email;
+$("taxRateTop").textContent = Math.round(SETTINGS.taxRate * 100) + "%";
     // Invoice # and date
     $("invoiceDate").value = new Date().toISOString().slice(0,10);
     $("invoiceNo").value = `${SETTINGS.prefix}-${SETTINGS.year}-0001`; // temporary
