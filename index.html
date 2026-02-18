@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Good ’Nuff Invoice</title>
+  <style>
+    :root { --pad: 14px; --border: #d0d0d0; --bg: #fafafa; }
+    body { font-family: -apple-system, system-ui, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: var(--bg); }
+    header { padding: 16px; background: #111; color: #fff; }
+    header h1 { margin: 0; font-size: 18px; letter-spacing: .2px; }
+    main { max-width: 980px; margin: 0 auto; padding: 14px; }
+    .card { background: #fff; border: 1px solid var(--border); border-radius: 10px; padding: var(--pad); margin: 12px 0; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .row3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+    label { display: block; font-size: 12px; color: #333; margin-bottom: 4px; }
+    input, textarea, select { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; background: #fff; box-sizing: border-box; }
+    textarea { min-height: 64px; resize: vertical; }
+    .actions { display: flex; gap: 10px; flex-wrap: wrap; }
+    button { padding: 10px 12px; border-radius: 10px; border: 1px solid #111; background: #111; color: #fff; font-size: 14px; cursor: pointer; }
+    button.secondary { background: #fff; color: #111; }
+    button.danger { background: #b00020; border-color: #b00020; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border-bottom: 1px solid #eee; padding: 10px 6px; vertical-align: top; }
+    th { text-align: left; font-size: 12px; color: #444; }
+    .num { text-align: right; font-variant-numeric: tabular-nums; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; font-size: 12px; }
+    .muted { color: #666; font-size: 12px; }
+    .totals { display: grid; grid-template-columns: 1fr 260px; gap: 12px; align-items: start; }
+    .totalsBox { border: 1px solid #eee; border-radius: 10px; padding: 10px; }
+    .totLine { display: flex; justify-content: space-between; padding: 6px 0; }
+    .totLine strong { font-size: 15px; }
+    .printOnly { display:none; }
+    @media print {
+      header, .noPrint { display:none !important; }
+      body { background:#fff; }
+      main { padding: 0; }
+      .card { border: none; padding: 0; }
+      .printOnly { display:block; }
+      input, textarea, select, button { display:none !important; }
+      table th, table td { border-bottom: 1px solid #ddd; }
+    }
+  </style>
+</head>
+<body>
+<header class="noPrint">
+  <h1>Good ’Nuff Mobile Mechanic — Invoice</h1>
+</header>
+
+<main>
+  <div class="card">
+    <div class="row3">
+      <div>
+        <label>Invoice #</label>
+        <input id="invoiceNo" readonly />
+        <div class="muted">Auto-numbered. Use “New Invoice” to increment.</div>
+      </div>
+      <div>
+        <label>Date</label>
+        <input id="invoiceDate" type="date" />
+      </div>
+      <div>
+        <label>Status</label>
+        <select id="paidStatus">
+          <option value="UNPAID">UNPAID</option>
+          <option value="PAID">PAID</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div>
+        <label>Customer Name</label>
+        <input id="custName" placeholder="Customer name" />
+      </div>
+      <div>
+        <label>Customer Phone / Email</label>
+        <input id="custContact" placeholder="(optional)" />
+      </div>
+    </div>
+
+    <div class="row" style="margin-top:10px;">
+      <div>
+        <label>Vehicle (Year Make Model)</label>
+        <input id="vehicle" placeholder="e.g., 2017 Ford Focus SEL" />
+      </div>
+      <div>
+        <label>Location</label>
+        <input id="location" placeholder="e.g., customer address / city" />
+      </div>
+    </div>
+
+    <div style="margin-top:10px;">
+      <label>Notes (diagnosis, warranty terms, etc.)</label>
+      <textarea id="notes" placeholder="Optional notes..."></textarea>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="noPrint actions" style="justify-content: space-between; align-items:center;">
+      <div class="pill">
+        <strong>Line Items</strong>
+        <span class="muted">(parts, labor, fees)</span>
+      </div>
+      <div class="actions">
+        <button class="secondary" id="addRowBtn">Add Item</button>
+        <button class="secondary" id="addLaborBtn">Add Labor Block</button>
+        <button class="danger" id="clearItemsBtn">Clear Items</button>
+      </div>
+    </div>
+
+    <div style="overflow:auto;">
+      <table id="itemsTable">
+        <thead>
+          <tr>
+            <th style="min-width:260px;">Description</th>
+            <th style="width:90px;" class="num">Qty</th>
+            <th style="width:120px;" class="num">Rate</th>
+            <th style="width:120px;" class="num">Amount</th>
+            <th class="noPrint" style="width:70px;"></th>
+          </tr>
+        </thead>
+        <tbody id="itemsBody"></tbody>
+      </table>
+    </div>
+
+    <div class="totals" style="margin-top:10px;">
+      <div>
+        <div class="muted">
+          Tip: On iPhone, tap <strong>Print / Save PDF</strong>, then choose <strong>Print</strong> → pinch-out preview → Share → Save to Files.
+        </div>
+      </div>
+
+      <div class="totalsBox">
+        <div class="row" style="grid-template-columns: 1fr 1fr; gap: 10px;">
+          <div>
+            <label>Tax %</label>
+            <input id="taxRate" type="number" step="0.01" min="0" value="0" />
+          </div>
+          <div>
+            <label>Discount $</label>
+            <input id="discount" type="number" step="0.01" min="0" value="0" />
+          </div>
+        </div>
+
+        <div class="totLine"><span>Subtotal</span><span class="num" id="subTotal">$0.00</span></div>
+        <div class="totLine"><span>Tax</span><span class="num" id="taxTotal">$0.00</span></div>
+        <div class="totLine"><span>Discount</span><span class="num" id="discTotal">$0.00</span></div>
+        <div class="totLine"><strong>Total</strong><strong class="num" id="grandTotal">$0.00</strong></div>
+      </div>
+    </div>
+
+    <div class="noPrint actions" style="margin-top:12px;">
+      <button id="newInvoiceBtn">New Invoice (auto-increment)</button>
+      <button class="secondary" id="saveBtn">Save</button>
+      <button class="secondary" id="printBtn">Print / Save PDF</button>
+      <button class="secondary" id="csvBtn">Export CSV</button>
+    </div>
+  </div>
+
+  <div class="card printOnly">
+    <h2 style="margin:0 0 8px 0;">Good ’Nuff Mobile Mechanic</h2>
+    <div class="muted" id="printMeta"></div>
+  </div>
+</main>
+
+<script>
+  const pad4 = (n) => String(n).padStart(4, "0");
+
+  // ===== Storage keys =====
+  const KEY_COUNTER = "goodnuff_invoice_counter_2026";
+  const KEY_DRAFT = "goodnuff_invoice_draft";
+
+  // ===== Helpers =====
+  const money = (n) => {
+    const x = Number(n || 0);
+    return x.toLocaleString(undefined, { style: "currency", currency: "USD" });
+  };
+
+  function todayISO() {
+    const d = new Date();
+    const tz = new Date(d.getTime() - d.getTimezoneOffset()*60000);
+    return tz.toISOString().slice(0,10);
+  }
+
+  function getCounter() {
+    const raw = localStorage.getItem(KEY_COUNTER);
+    const n = raw ? Number(raw) : 0;
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  function setCounter(n) {
+    localStorage.setItem(KEY_COUNTER, String(n));
+  }
+
+  function makeInvoiceNo(counter) {
+    return `GOODNUFF-2026-${pad4(counter)}`;
+  }
+
+  // ===== DOM =====
+  const els = {
+    invoiceNo: document.getElementById("invoiceNo"),
+    invoiceDate: document.getElementById("invoiceDate"),
+    paidStatus: document.getElementById("paidStatus"),
+    custName: document.getElementById("custName"),
+    custContact: document.getElementById("custContact"),
+    vehicle: document.getElementById("vehicle"),
+    location: document.getElementById("location"),
+    notes: document.getElementById("notes"),
+    itemsBody: document.getElementById("itemsBody"),
+    taxRate: document.getElementById("taxRate"),
+    discount: document.getElementById("discount"),
+    subTotal: document.getElementById("subTotal"),
+    taxTotal: document.getElementById("taxTotal"),
+    discTotal: document.getElementById("discTotal"),
+    grandTotal: document.getElementById("grandTotal"),
+    printMeta: document.getElementById("printMeta")
+  };
+
+  function addItemRow({ desc="", qty=1, rate=0 } = {}) {
+    const tr = document.createElement("tr");
+
+    const tdDesc = document.createElement("td");
+    const inpDesc = document.createElement("input");
+    inpDesc.value = desc;
+    inpDesc.placeholder = "e.g., Brake pads + install";
+    tdDesc.appendChild(inpDesc);
+
+    const tdQty = document.createElement("td");
+    tdQty.className = "num";
+    const inpQty = document.createElement("input");
+    inpQty.type = "number";
+    inpQty.step = "0.01";
+    inpQty.min = "0";
+    inpQty.value = qty;
+    tdQty.appendChild(inpQty);
+
+    const tdRate = document.createElement("td");
+    tdRate.className = "num";
+    const inpRate = document.createElement("input");
+    inpRate.type = "number";
+    inpRate.step = "0.01";
+    inpRate.min = "0";
+    inpRate.value = rate;
+    tdRate.appendChild(inpRate);
+
+    const tdAmt = document.createElement("td");
+    tdAmt.className = "num";
+    tdAmt.textContent = money(Number(qty)*Number(rate));
+
+    const tdDel = document.createElement("td");
+    tdDel.className = "noPrint num";
+    const delBtn = document.createElement("button");
+    delBtn.textContent = "Del";
+    delBtn.className = "secondary";
+    delBtn.style.padding = "8px 10px";
+    delBtn.onclick = () => { tr.remove(); recalc(); autosave(); };
+    tdDel.appendChild(delBtn);
+
+    function onChange() {
+      const q = Number(inpQty.value || 0);
+      const r = Number(inpRate.value || 0);
+      tdAmt.textContent = money(q*r);
+      recalc();
+      autosave();
+    }
+
+    inpDesc.addEventListener("input", autosave);
+    inpQty.addEventListener("input", onChange);
+    inpRate.addEventListener("input", onChange);
+
+    tr.append(tdDesc, tdQty, tdRate, tdAmt, tdDel);
+    els.itemsBody.appendChild(tr);
+    recalc();
+  }
+
+  function getItems() {
+    const rows = [...els.itemsBody.querySelectorAll("tr")];
+    return rows.map(tr => {
+      const inputs = tr.querySelectorAll("input");
+      const desc = inputs[0].value.trim();
+      const qty = Number(inputs[1].value || 0);
+      const rate = Number(inputs[2].value || 0);
+      return { desc, qty, rate, amount: qty*rate };
+    }).filter(x => x.desc || x.qty || x.rate);
+  }
+
+  function recalc() {
+    const items = getItems();
+    const subtotal = items.reduce((s, x) => s + (x.amount || 0), 0);
+    const taxPct = Number(els.taxRate.value || 0);
+    const tax = subtotal * (taxPct / 100);
+    const disc = Number(els.discount.value || 0);
+    const total = Math.max(0, subtotal + tax - disc);
+
+    els.subTotal.textContent = money(subtotal);
+    els.taxTotal.textContent = money(tax);
+    els.discTotal.textContent = money(disc);
+    els.grandTotal.textContent = money(total);
+
+    // Print meta
+    els.printMeta.textContent =
+      `${els.invoiceNo.value} • ${els.invoiceDate.value} • ${els.paidStatus.value} • ${els.custName.value || "Customer"} • ${els.vehicle.value || "Vehicle"}`;
+  }
+
+  function autosave() {
+    const draft = collectData();
+    localStorage.setItem(KEY_DRAFT, JSON.stringify(draft));
+  }
+
+  function collectData() {
+    return {
+      invoiceNo: els.invoiceNo.value,
+      invoiceDate: els.invoiceDate.value,
+      paidStatus: els.paidStatus.value,
+      custName: els.custName.value,
+      custContact: els.custContact.value,
+      vehicle: els.vehicle.value,
+      location: els.location.value,
+      notes: els.notes.value,
+      taxRate: els.taxRate.value,
+      discount: els.discount.value,
+      items: getItems()
+    };
+  }
+
+  function loadData(data) {
+    els.invoiceNo.value = data.invoiceNo || els.invoiceNo.value;
+    els.invoiceDate.value = data.invoiceDate || todayISO();
+    els.paidStatus.value = data.paidStatus || "UNPAID";
+    els.custName.value = data.custName || "";
+    els.custContact.value = data.custContact || "";
+    els.vehicle.value = data.vehicle || "";
+    els.location.value = data.location || "";
+    els.notes.value = data.notes || "";
+    els.taxRate.value = data.taxRate ?? "0";
+    els.discount.value = data.discount ?? "0";
+
+    // items
+    els.itemsBody.innerHTML = "";
+    (data.items && data.items.length ? data.items : [{desc:"",qty:1,rate:0}]).forEach(addItemRow);
+    recalc();
+  }
+
+  function newInvoice() {
+    const next = getCounter() + 1;
+    setCounter(next);
+    els.invoiceNo.value = makeInvoiceNo(next);
+    els.invoiceDate.value = todayISO();
+    els.paidStatus.value = "UNPAID";
+    els.custName.value = "";
+    els.custContact.value = "";
+    els.vehicle.value = "";
+    els.location.value = "";
+    els.notes.value = "";
+    els.taxRate.value = "0";
+    els.discount.value = "0";
+    els.itemsBody.innerHTML = "";
+    addItemRow({ desc: "", qty: 1, rate: 0 });
+    autosave();
+    recalc();
+  }
+
+  function exportCSV() {
+    const d = collectData();
+    const items = d.items || [];
+    const header = ["invoiceNo","invoiceDate","status","customer","contact","vehicle","location","taxRate","discount","itemDesc","qty","rate","amount"];
+    const lines = [header.join(",")];
+
+    const safe = (s) => `"${String(s ?? "").replaceAll('"','""')}"`;
+
+    if (items.length === 0) {
+      lines.push([d.invoiceNo,d.invoiceDate,d.paidStatus,d.custName,d.custContact,d.vehicle,d.location,d.taxRate,d.discount,"","","",""].map(safe).join(","));
+    } else {
+      for (const it of items) {
+        lines.push([d.invoiceNo,d.invoiceDate,d.paidStatus,d.custName,d.custContact,d.vehicle,d.location,d.taxRate,d.discount,it.desc,it.qty,it.rate,it.amount]
+          .map(safe).join(","));
+      }
+    }
+
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    const url = URL.createObjectURL(blob);
+    a.href = url;
+    a.download = `${d.invoiceNo || "GOODNUFF-INVOICE"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // ===== Wire up =====
+  document.getElementById("addRowBtn").onclick = () => addItemRow();
+  document.getElementById("addLaborBtn").onclick = () => {
+    // Labor block: hours x rate
+    addItemRow({ desc: "Labor", qty: 1, rate: 90 });
+  };
+  document.getElementById("clearItemsBtn").onclick = () => {
+    if (!confirm("Clear all items?")) return;
+    els.itemsBody.innerHTML = "";
+    addItemRow({ desc: "", qty: 1, rate: 0 });
+    autosave();
+  };
+
+  document.getElementById("newInvoiceBtn").onclick = () => newInvoice();
+  document.getElementById("saveBtn").onclick = () => { autosave(); alert("Saved locally on this iPhone."); };
+  document.getElementById("printBtn").onclick = () => window.print();
+  document.getElementById("csvBtn").onclick = () => exportCSV();
+
+  ["input","change"].forEach(evt => {
+    els.taxRate.addEventListener(evt, () => { recalc(); autosave(); });
+    els.discount.addEventListener(evt, () => { recalc(); autosave(); });
+    els.invoiceDate.addEventListener(evt, () => { recalc(); autosave(); });
+    els.paidStatus.addEventListener(evt, () => { recalc(); autosave(); });
+    els.custName.addEventListener(evt, autosave);
+    els.custContact.addEventListener(evt, autosave);
+    els.vehicle.addEventListener(evt, autosave);
+    els.location.addEventListener(evt, autosave);
+    els.notes.addEventListener(evt, autosave);
+  });
+
+  // ===== Init =====
+  (function init() {
+    // If no invoice number exists, create first
+    let c = getCounter();
+    if (c <= 0) {
+      c = 1;
+      setCounter(c);
+    }
+    els.invoiceNo.value = makeInvoiceNo(c);
+    els.invoiceDate.value = todayISO();
+
+    // Load draft if present
+    const raw = localStorage.getItem(KEY_DRAFT);
+    if (raw) {
+      try { loadData(JSON.parse(raw)); return; } catch {}
+    }
+    // Default one row
+    addItemRow({ desc: "", qty: 1, rate: 0 });
+    recalc();
+    autosave();
+  })();
+</script>
+</body>
+</html>
