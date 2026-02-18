@@ -31,15 +31,35 @@
     .totLine { display: flex; justify-content: space-between; padding: 6px 0; }
     .totLine strong { font-size: 15px; }
     .printOnly { display:none; }
-    @media print {
-      header, .noPrint { display:none !important; }
-      body { background:#fff; }
-      main { padding: 0; }
-      .card { border: none; padding: 0; }
-      .printOnly { display:block; }
-      input, textarea, select, button { display:none !important; }
-      table th, table td { border-bottom: 1px solid #ddd; }
-    }
+    @page { margin: 12mm; }
+
+@media print {
+  /* Hide anything that is not part of the final invoice */
+  header,
+  .noPrint,
+  .muted,
+  button,
+  .actions,
+  .tip,
+  .help,
+  .devNote {
+    display: none !important;
+  }
+
+  body { background: #fff !important; }
+  main { padding: 0 !important; }
+  .card { border: none !important; padding: 0 !important; }
+
+  /* Make print header visible */
+  .printOnly { display: block !important; }
+
+  /* Make tables look crisp */
+  table { width: 100% !important; }
+  th, td { border-bottom: 1px solid #ddd !important; }
+
+  /* Prevent awkward page breaks */
+  .card, table, tr, td, th { page-break-inside: avoid; }
+}
   </style>
 </head>
 <body>
