@@ -1,0 +1,206 @@
+#!/usr/bin/env bash
+# Good 'Nuff - Work with an existing job (pick job, then actions)
+
+set -e
+BASE="$HOME/.business"
+JOBS_DIR="$BASE/jobs"
+
+quitcheck() {
+  case "$1" in
+    q|Q)
+      echo "Cancelled."
+      exit 0
+      ;;
+    b|B)
+      echo "Back."
+      return 1
+      ;;
+  esac
+}
+
+if [ ! -d "$JOBS_DIR" ]; then
+  echo "No jobs directory found at $JOBS_DIR"
+  exit 1
+fi
+
+while true; do
+  echo "=== Find Existing Job ==="
+  echo "(Type 'q' to quit, 'b' to go back)"
+  read -rp "Search by customer / vehicle / keyword: " q
+  if [ -z "$q" ]; then
+    echo "Search text is required."
+    echo
+    continue
+  fi
+  if [[ "$q" == "q" || "$q" == "Q" ]]; then
+    echo "Cancelled."
+    exit 0
+  fi
+  if [[ "$q" == "b" || "$q" == "B" ]]; then
+    echo "Back to main menu."
+    exit 0
+  fi
+
+  mapfile -t matches < <(find "$JOBS_DIR" -maxdepth 1 -mindepth 1 -type d -printf '%P\n' | grep -i "$q" | sort | tail -n 20)
+
+  if [ "${#matches[@]}" -eq 0 ]; then
+    echo "No matching jobs found for '$q'."
+    echo
+    continue
+  fi
+
+  echo
+  echo "Matching jobs:"
+  for i in "${!matches[@]}"; do
+    idx=$((i+1))
+    echo "[$idx] ${matches[$i]}"
+  done
+  echo
+
+  read -rp "Select job number (or 'b' to go back): " choice
+  if [[ "$choice" == "b" || "$choice" == "B" ]]; then
+    echo
+    continue
+  fi
+  if ! [[ "$choice" =~ ^[0-9]+$ ]] || [ "$choice" -lt 1 ] || [ "$choice" -gt "${#matches[@]}" ]; then
+    echo "Invalid selection."
+    echo
+    continue
+  fi
+
+  job_dir="${matches[$((choice-1))]}"
+  full_path="$JOBS_DIR/$job_dir"
+
+  # Load summary from meta.txt if present
+  customer="(unknown)"
+  vehicle="(unknown)"
+  job_id="$job_dir"
+  if [ -f "$full_path/meta.txt" ]; then
+    customer=$(grep -m1 '^Customer:' "$full_path/meta.txt" | sed 's/^Customer:[[:space:]]*//')
+    vehicle=$(grep -m1 '^Vehicle:' "$full_path/meta.txt" | sed 's/^Vehicle:[[:space:]]*//')
+    jid=$(grep -m1 '^Job ID:' "$full_path/meta.txt" | sed 's/^Job ID:[[:space:]]*//')
+    [ -n "$jid" ] && job_id="$jid"
+  fi
+
+  while true; do
+    echo
+    echo "GOOD 'NUFF - Job Actions"
+    echo "Customer: $customer"
+    echo "Vehicle:  $vehicle"
+    echo "Job ID:   $job_id"
+    echo "Folder:   $full_path"
+    echo "-------------------------------------"
+    echo "1) View job summary"
+    echo "2) Add note to this job"
+    echo "3) Create diagnostic log for this job"
+    echo "4) Show existing notes"
+    echo "5) Back to job search / main menu"
+    echo "-------------------------------------"
+    read -rp "Choose an option [1-5]: " act
+    echo
+
+    case "$act" in
+      1)
+        if [ -f "$full_path/meta.txt" ]; then
+          echo "----- meta.txt -----"
+          cat "$full_path/meta.txt"
+          echo "--------------------"
+        else
+          echo "No meta.txt found. Folder is:"
+          echo "  $full_path"
+        fi
+        ;;
+      2)
+        read -rp "Note text (or 'q' to cancel): " note
+        if [[ "$note" == "q" || "$note" == "Q" ]]; then
+          echo "Note cancelled."
+        elif [ -z "$note" ]; then
+          echo "Empty note, nothing added."
+        else
+          ts=$(date -Is)
+          echo "[$ts] $note" >> "$full_path/notes.txt"
+          echo "Note added to: $full_path/notes.txt"
+        fi
+        ;;
+      3)
+        mkdir -p "$full_path/diagnostics"
+        read -rp "Customer concern / complaint: " complaint
+        read -rp "Findings / cause: " cause
+        read -rp "Work performed / correction: " correction
+        read -rp "Codes (DTCs) if any: " codes
+        read -rp "Mileage at time of visit: " mileage
+        read -rp "Recommendations / future work: " recs
+        read -rp "Labor total (optional): " labor
+        read -rp "Parts total (optional): " parts
+
+        diag_file="$full_path/diagnostics/diag_$(date +%Y%m%d_%H%M%S).txt"
+        cat > "$diag_file" <<LOG
+GOOD 'NUFF MOBILE MECHANIC - DIAGNOSTIC REPORT
+Date: $(date)
+Job folder: $full_path
+
+Customer: $customer
+Vehicle:  $vehicle
+Job ID:   $job_id
+
+Complaint:
+$complaint
+
+Cause / Findings:
+$cause
+
+Work Performed / Correction:
+$correction
+
+Diagnostic Trouble Codes:
+$codes
+
+Mileage:
+$mileage
+
+Labor Total:
+$labor
+
+Parts Total:
+$parts
+
+Recommendations:
+$recs
+LOG
+
+        echo "Diagnostic log saved to:"
+        echo "  $diag_file"
+
+        # Optional PDF if tools exist
+        if command -v enscript >/dev/null 2>&1 && command -v ps2pdf >/dev/null 2>&1; then
+          pdf_file="${diag_file%.txt}.pdf"
+          if enscript "$diag_file" -o - | ps2pdf - "$pdf_file"; then
+            echo "PDF copy saved to:"
+            echo "  $pdf_file"
+          else
+            echo "Tried to create PDF, but something failed. TXT report is still good."
+          fi
+        else
+          echo "PDF tools not found (enscript/ps2pdf). TXT report only."
+        fi
+        ;;
+      4)
+        if [ -f "$full_path/notes.txt" ]; then
+          echo "----- notes.txt -----"
+          cat "$full_path/notes.txt"
+          echo "---------------------"
+        else
+          echo "No notes.txt found for this job."
+        fi
+        ;;
+      5)
+        echo "Back to job search."
+        echo
+        break
+        ;;
+      *)
+        echo "Invalid option."
+        ;;
+    esac
+  done
+done
