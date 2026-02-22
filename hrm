@@ -1,93 +1,34 @@
-def vin_attach_to_customer() -> None:
-    """Pick an existing customer and attach/update their VIN."""
+def run_vin_menu() -> None:
+    while True:
+        gn_header("VIN TOOLS")
 
-    if not CUSTOMERS.exists():
-        pause("No customers.csv found. Add a customer first.")
-        return
+        print("1) Quick VIN decode (local)")
+        print("2) Open VIN in NHTSA browser")
+        print("3) View VIN history")
+        print("4) Attach VIN to existing customer")
+        print("5) Back\n")
 
-    # Load customers
-    with CUSTOMERS.open("r", encoding="utf-8", newline="") as f:
-        reader = csv.DictReader(f)
-        rows = list(reader)
+        choice = input("Choose an option [1-5]: ").strip()
 
-    if not rows:
-        pause("No customers found in customers.csv.")
-        return
+        if choice == "1":
+            vin = vin_prompt()
+            if vin:
+                vin_decode_local(vin)
 
-    gn_header("ATTACH VIN TO CUSTOMER")
+        elif choice == "2":
+            vin = vin_prompt()
+            if vin:
+                vin_open_in_browser(vin)
+                pause()
 
-    print("Existing customers:\n")
-    for row in rows:
-        cid = row.get("customer_id", "").strip()
-        name = row.get("name", "").strip()
-        veh = row.get("vehicle", "").strip()
-        plate_vin = row.get("plate_or_vin", "").strip()
-        display = veh if veh else "(no vehicle on file)"
-        extra = f" VIN: {plate_vin}" if len(plate_vin) == 17 else ""
-        print(f"  {cid}. {name}  –  {display}{extra}")
+        elif choice == "3":
+            vin_show_history()
 
-    chosen = input("\nEnter customer_id to update (or Enter to cancel): ").strip()
-    if not chosen:
-        pause("Cancelled.")
-        return
+        elif choice == "4":
+            vin_attach_to_customer()
 
-    target = None
-    for row in rows:
-        if row.get("customer_id", "").strip() == chosen:
-            target = row
-            break
+        elif choice in ("5", "q", "Q"):
+            return
 
-    if target is None:
-        pause(f"No customer found with id {chosen}.")
-        return
-
-    print(f"\nSelected: {target.get('name','(unknown)')}")
-
-    vin_in = input("Enter VIN to attach (17 chars): ").strip().upper()
-    vin_in = vin_clean(vin_in)
-
-    ok, msg = vin_basic_checks(vin_in)
-    if not ok:
-        pause(f"Invalid VIN: {msg}")
-        return
-
-    # Decode to generate a vehicle summary
-    country, make = vin_decode_country_and_make(vin_in)
-    year = vin_decode_year_code(vin_in[9])
-    chk_ok, _ = vin_check_digit_status(vin_in)
-
-    summary_parts = []
-    if year is not None:
-        summary_parts.append(str(year))
-    if make and not make.startswith("Unknown"):
-        summary_parts.append(make)
-    veh_summary = " ".join(summary_parts) if summary_parts else ""
-
-    print("\nWill set:")
-    print(f"  plate_or_vin → {vin_in}")
-    if veh_summary:
-        print(f"  vehicle      → {veh_summary}")
-
-    confirm = input("\nApply these changes? [y/N]: ").strip().lower()
-    if not confirm.startswith("y"):
-        pause("Cancelled.")
-        return
-
-    target["plate_or_vin"] = vin_in
-    if veh_summary:
-        target["vehicle"] = veh_summary
-
-    # Write CSV back
-    fieldnames = [
-        "customer_id", "name", "phone", "email",
-        "vehicle", "plate_or_vin", "notes",
-    ]
-    with CUSTOMERS.open("w", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        writer.writerows(rows)
-
-    # log to VIN history too
-    vin_save_history(vin_in, country, make, year, chk_ok)
-
-    pause("Customer VIN updated.")
+        else:
+            pause("Invalid choice.")
