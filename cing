@@ -1,0 +1,54 @@
+def vin_decode_local(vin: str) -> None:
+    country, make = vin_decode_country_and_make(vin)
+    year = vin_decode_year_code(vin[9])
+    chk_ok, chk_msg = vin_check_digit_status(vin)
+    plant = vin[10]
+    serial = vin[11:]
+
+    gn_header("VIN QUICK DECODE")
+
+    summary_parts = []
+    if year is not None:
+        summary_parts.append(str(year))
+    if make and not make.startswith("Unknown"):
+        summary_parts.append(make)
+    if country and not country.startswith("Unknown"):
+        summary_parts.append(f"({country})")
+
+    summary = " ".join(summary_parts) if summary_parts else "Unknown vehicle"
+
+    print(f"{BOLD}VIN          :{RESET} {vin}")
+    print(f"{BOLD}Summary      :{RESET} {summary}")
+    print(f"{BOLD}Country      :{RESET} {country}")
+    print(f"{BOLD}Manufacturer :{RESET} {make}")
+    if year is not None:
+        print(f"{BOLD}Model year   :{RESET} ~{year} (10th digit '{vin[9]}')")
+    else:
+        print(f"{BOLD}Model year   :{RESET} Unknown (10th digit '{vin[9]}')")
+
+    print(f"{BOLD}Plant code   :{RESET} {plant} (11th digit)")
+    print(f"{BOLD}Serial       :{RESET} {serial}")
+
+    status_color = GREEN if chk_ok else RED
+    print(
+        f"{BOLD}Check digit  :{RESET} "
+        f"{status_color}{'OK' if chk_ok else 'MISMATCH'}{RESET} "
+        f"({chk_msg})"
+    )
+
+    flags = vin_suspicious_flags(vin, chk_ok, country, make, year)
+    if flags:
+        print(f"\n{YELLOW}Warnings:{RESET}")
+        for fmsg in flags:
+            print(f"  - {fmsg}")
+    else:
+        print(f"\n{GREEN}VIN looks consistent with known patterns.{RESET}")
+
+    # save to history
+    vin_save_history(vin, country, make, year, chk_ok)
+
+    ans = input("\nOpen full NHTSA decoder in browser? [y/N]: ").strip()
+    if ans.lower().startswith("y"):
+        vin_open_in_browser(vin)
+
+    pause()
