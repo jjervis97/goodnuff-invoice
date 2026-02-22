@@ -1,21 +1,27 @@
-# 1) Run the API request
-online_info = vin_fetch_online(vin)
+def vin_fetch_online(vin: str) -> dict | None:
+    """Use NHTSA VPIC API to decode VIN online."""
+    import urllib.request, json
 
-# 2) Offer optional full-browser opening AFTER successful fetch
-open_full = input("\nOpen full NHTSA decode in browser? [y/N]: ").strip().lower()
-if open_full == "y":
-    vin_open_full_in_browser(vin)
+    url = f"https://vpic.nhtsa.dot.gov/api/vehicles/DecodeVinValues/{vin}?format=json"
 
-# 3) Handle failure
-if online_info is None:
-    print("\nOnline decode failed (no internet or API problem).")
-else:
-    print("\nOnline decode (NHTSA):")
-    print("-" * 60)
-    print(f"Make / Model : {online_info.get('Make','?')}  {online_info.get('Model','?')}")
-    print(f"Year         : {online_info.get('ModelYear','?')}")
-    print(f"Body / Trim  : {online_info.get('BodyClass','?')}")
-    cyl = online_info.get('EngineCylinders') or "?"
-    disp = online_info.get('EngineDisplacement') or "?"
-    print(f"Engine       : {cyl} cyl, {disp} L")
-    print("-" * 60)
+    try:
+        with urllib.request.urlopen(url, timeout=10) as r:
+            data = json.loads(r.read().decode("utf-8"))
+    except Exception:
+        return None
+
+    results = data.get("Results")
+    if not results:
+        return None
+
+    r = results[0]
+
+    return {
+        "Make": r.get("Make") or "",
+        "Model": r.get("Model") or "",
+        "ModelYear": r.get("ModelYear") or "",
+        "Trim": r.get("Trim") or "",
+        "BodyClass": r.get("BodyClass") or "",
+        "EngineCylinders": r.get("EngineCylinders") or "",
+        "DisplacementL": r.get("DisplacementL") or "",
+    }
