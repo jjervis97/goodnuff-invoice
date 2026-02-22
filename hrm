@@ -1,13 +1,39 @@
-def vin_fetch_online(vin: str) -> dict | None:
-    """Fetch full decoded VIN info from NHTSA API. Returns dict or None."""
-    try:
-        url = f"https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/{vin}?format=json"
-        with urllib.request.urlopen(url, timeout=6) as resp:
-            raw = resp.read().decode("utf-8")
-        data = json.loads(raw)
-        if "Results" in data and len(data["Results"]) > 0:
-            return data["Results"][0]
-        return None
-    except Exception as e:
-        print(f"\n{YELLOW}WARNING: Online VIN lookup failed ({e}).{RESET}")
-        return None
+def vin_online_summary(api_row: dict) -> list[str]:
+    """
+    Build a short human-readable summary from the NHTSA API row.
+    Returns a list of text lines we can print under 'Online decode (NHTSA)'.
+    """
+    # These keys come straight from the NHTSA JSON response
+    make   = api_row.get("Make", "").strip()
+    model  = api_row.get("Model", "").strip()
+    year   = api_row.get("ModelYear", "").strip()
+    body   = api_row.get("BodyClass", "").strip()
+    engine = api_row.get("EngineConfiguration", "").strip()
+    disp   = api_row.get("DisplacementL", "").strip()
+    fuel   = api_row.get("FuelTypePrimary", "").strip()
+
+    lines: list[str] = []
+
+    # First line: “2017 Ford Focus”
+    if year or make or model:
+        first = " ".join(x for x in [year, make, model] if x)
+        lines.append(first)
+
+    # Second line: body style (SUV, 4-door sedan, etc.)
+    if body:
+        lines.append(body)
+
+    # Third line: engine size / config
+    if disp or engine:
+        if disp and engine:
+            lines.append(f"{disp}L {engine}")
+        elif disp:
+            lines.append(f"{disp}L")
+        else:
+            lines.append(engine)
+
+    # Fourth line: fuel type
+    if fuel:
+        lines.append(fuel)
+
+    return lines
