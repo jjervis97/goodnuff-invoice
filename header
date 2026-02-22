@@ -1,234 +1,299 @@
-#!/usr/bin/env python3
-"""
-GOOD 'NUFF VIN HELPER
+from datetime import datetime
 
-Quick VIN decoder:
-- Validates length & characters
-- Checks VIN check digit
-- Decodes region, rough manufacturer (for common makes)
-- Decodes model year (10th character)
-- Shows plant code & serial
-- Can suggest NHTSA decode URL
+# ----- VIN TOOLS -----
 
-Does NOT pull online data – it's a quick offline decoder.
-"""
+VIN_HISTORY = GARAGE / "vin_history.csv"
 
-from pathlib import Path
-import sys
-import webbrowser
+# characters that are NOT allowed in a VIN
+VIN_FORBIDDEN = set("IOQ")
 
-# Colors
-RESET  = "\033[0m"
-BOLD   = "\033[1m"
-RED    = "\033[31m"
-GREEN  = "\033[32m"
-YELLOW = "\033[33m"
-CYAN   = "\033[36m"
-
-# --- VIN helpers ---
-
-# Transliteration for VIN check digit
-VIN_MAP = {
-    **{str(i): i for i in range(10)},
-    "A": 1, "B": 2, "C": 3, "D": 4, "E": 5,
-    "F": 6, "G": 7, "H": 8, "J": 1, "K": 2,
-    "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
-    "S": 2, "T": 3, "U": 4, "V": 5, "W": 6,
-    "X": 7, "Y": 8, "Z": 9,
-}
-
-VIN_WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2]
-
-YEAR_CODES = {
-    "A": 1980, "B": 1981, "C": 1982, "D": 1983, "E": 1984, "F": 1985,
-    "G": 1986, "H": 1987, "J": 1988, "K": 1989, "L": 1990, "M": 1991,
-    "N": 1992, "P": 1993, "R": 1994, "S": 1995, "T": 1996, "V": 1997,
-    "W": 1998, "X": 1999, "Y": 2000,
-    "1": 2001, "2": 2002, "3": 2003, "4": 2004, "5": 2005,
-    "6": 2006, "7": 2007, "8": 2008, "9": 2009,
-    # repeats every 30 years:
-    "A2": 2010, "B2": 2011, "C2": 2012, "D2": 2013, "E2": 2014,
-    "F2": 2015, "G2": 2016, "H2": 2017, "J2": 2018, "K2": 2019,
-    "L2": 2020, "M2": 2021, "N2": 2022, "P2": 2023, "R2": 2024,
-    "S2": 2025, "T2": 2026, "V2": 2027, "W2": 2028, "X2": 2029,
-    "Y2": 2030,
-}
-
-REGION_MAP = {
-    "1": "USA",
+# simple country decode by first character
+VIN_COUNTRY = {
+    "1": "USA", "4": "USA", "5": "USA",
     "2": "Canada",
     "3": "Mexico",
-    "4": "USA",
-    "5": "USA",
     "J": "Japan",
     "K": "Korea",
-    "S": "UK",
+    "S": "United Kingdom",
     "V": "France / Spain",
     "W": "Germany",
-    "Y": "Nordic (Sweden/Finland)",
+    "Y": "Scandinavia",
     "Z": "Italy",
 }
 
-# Very rough WMI → manufacturer guess
-WMI_MAKES = {
-    # Ford
-    "1FA": "Ford",
-    "1FB": "Ford",
-    "1FZ": "Ford",
-    "3FA": "Ford (Mexico)",
-    "1FT": "Ford Truck",
-    "1FM": "Ford SUV",
-    "3FM": "Ford SUV (Mexico)",
-    # GM
-    "1G1": "Chevrolet",
-    "1G2": "Pontiac",
-    "1G3": "Oldsmobile",
-    "1G4": "Buick",
-    "1G6": "Cadillac",
+# very small manufacturer table for common stuff
+VIN_WMI = {
+    "1FA": "Ford (USA)",
+    "1FB": "Ford (USA)",
+    "1F1": "Ford (USA)",
+    "1G1": "Chevrolet (USA)",
+    "1G2": "Pontiac (USA)",
+    "1G3": "Oldsmobile (USA)",
+    "1G4": "Buick (USA)",
+    "1G6": "Cadillac (USA)",
+    "1GC": "Chevrolet Truck (USA)",
+    "1GT": "GMC Truck (USA)",
     "2G1": "Chevrolet (Canada)",
-    "3G1": "Chevrolet (Mexico)",
-    # Nissan
-    "1N4": "Nissan",
-    "1N6": "Nissan Truck",
-    "3N1": "Nissan (Mexico)",
-    "3N6": "Nissan Truck (Mexico)",
+    "2T3": "Toyota (Canada)",
+    "2HK": "Honda (Canada)",
+    "3FA": "Ford (Mexico)",
+    "3GN": "GM (Mexico)",
+    "3VW": "Volkswagen (Mexico)",
+    "JHM": "Honda (Japan)",
+    "JH4": "Acura (Japan)",
+    "JTD": "Toyota (Japan)",
+    "JT3": "Toyota Truck (Japan)",
+    "JM1": "Mazda (Japan)",
     "JN1": "Nissan (Japan)",
-    "JN8": "Nissan SUV (Japan)",
-    # Toyota
-    "JT2": "Toyota (Japan)",
-    "JT3": "Toyota SUV/Truck (Japan)",
-    "2T1": "Toyota (Canada)",
-    "4T1": "Toyota (USA)",
-    # Subaru
-    "JF1": "Subaru (Japan)",
-    "4S3": "Subaru (USA)",
-    # Chrysler/Dodge/Jeep
-    "1C3": "Chrysler",
-    "1C4": "Chrysler/Jeep",
-    "1D3": "Dodge",
-    "3D3": "Dodge (Mexico)",
+    "JN8": "Nissan Truck/SUV (Japan)",
+    "KMH": "Hyundai (Korea)",
+    "KND": "Kia (Korea)",
+    "SAL": "Land Rover (UK)",
+    "SCF": "Aston Martin (UK)",
+    "WAU": "Audi (Germany)",
+    "WBA": "BMW (Germany)",
+    "WDC": "Mercedes-Benz (Germany)",
+    "WDB": "Mercedes-Benz (Germany)",
+    "ZAM": "Maserati (Italy)",
+    "ZFF": "Ferrari (Italy)",
 }
 
 
-def vin_clean(raw: str) -> str:
-    return raw.strip().upper().replace(" ", "")
 
 
-def vin_valid_chars(v: str) -> bool:
-    # VINs cannot contain I, O, Q
-    bad = set("IOQ")
-    return not any(c in bad for c in v)
+# ------------ VIN HELPER FUNCTIONS ------------
+
+def vin_clean(v: str) -> str:
+    """Uppercase + strip spaces."""
+    return v.strip().upper()
 
 
-def vin_check_digit(vin: str):
-    """Return (expected_digit_char, matches_bool or None if can't calc)."""
-    if len(vin) != 17:
-        return (None, None)
-    try:
-        total = 0
-        for i, ch in enumerate(vin):
-            if ch not in VIN_MAP:
-                return (None, None)
-            value = VIN_MAP[ch]
-            weight = VIN_WEIGHTS[i]
-            total += value * weight
-        remainder = total % 11
-        if remainder == 10:
-            expected = "X"
-        else:
-            expected = str(remainder)
-        actual = vin[8]
-        return (expected, actual == expected)
-    except Exception:
-        return (None, None)
+def vin_basic_checks(v: str) -> tuple[bool, str]:
+    """Length + forbidden chars only."""
+    if len(v) != 17:
+        return False, "VIN must be exactly 17 characters."
+
+    bad = [ch for ch in v if ch in VIN_FORBIDDEN]
+    if bad:
+        return False, f"VIN cannot contain I, O, or Q (found: {''.join(bad)})."
+
+    for ch in v:
+        if not ch.isalnum():
+            return False, "VIN must be letters and numbers only."
+
+    return True, ""
 
 
-def vin_region(vin: str):
-    return REGION_MAP.get(vin[0], "Unknown")
+def vin_transliterate(ch: str) -> int:
+    """Letter → number for check-digit calc."""
+    table = {
+        "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "H": 8,
+        "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
+        "S": 2, "T": 3, "U": 4, "V": 5, "W": 6, "X": 7, "Y": 8, "Z": 9,
+    }
+    if ch.isdigit():
+        return int(ch)
+    return table.get(ch, 0)
 
 
-def vin_make(vin: str):
-    wmi3 = vin[:3]
-    return WMI_MAKES.get(wmi3, "Unknown")
+def vin_calc_check_digit(v: str) -> str:
+    """ISO 3779 check-digit for VIN."""
+    weights = [8, 7, 6, 5, 4, 3, 2, 10,
+               0, 9, 8, 7, 6, 5, 4, 3, 2]
+    total = 0
+    for i, ch in enumerate(v):
+        value = vin_transliterate(ch)
+        total += value * weights[i]
+    remainder = total % 11
+    return "X" if remainder == 10 else str(remainder)
 
 
-def vin_model_year(vin: str):
-    code = vin[9]
-    # Try 2010+ interpretation first, then fallback to 1980s/90s
-    # Simple guess based on current era
-    key2 = code + "2"
-    if key2 in YEAR_CODES:
-        return YEAR_CODES[key2]
-    return YEAR_CODES.get(code, None)
+def vin_check_digit_status(v: str) -> tuple[bool, str]:
+    actual = v[8]
+    expected = vin_calc_check_digit(v)
+    ok = (actual == expected)
+    msg = f"Actual {actual}, expected {expected}"
+    return ok, msg
 
 
-def main():
-    print(f"{CYAN}{'=' * 60}{RESET}")
-    print(f"{BOLD}{CYAN}           GOOD 'NUFF VIN HELPER{RESET}")
-    print(f"{CYAN}{'=' * 60}{RESET}\n")
+def vin_decode_year_code(code: str) -> int | None:
+    """Return model year (rough guess)."""
+    year_map = {
+        "A": 1980, "B": 1981, "C": 1982, "D": 1983,
+        "E": 1984, "F": 1985, "G": 1986, "H": 1987,
+        "J": 1988, "K": 1989, "L": 1990, "M": 1991,
+        "N": 1992, "P": 1993, "R": 1994, "S": 1995,
+        "T": 1996, "V": 1997, "W": 1998, "X": 1999,
+        "Y": 2000,
+        "1": 2001, "2": 2002, "3": 2003, "4": 2004,
+        "5": 2005, "6": 2006, "7": 2007, "8": 2008,
+        "9": 2009,
+    }
+    base = year_map.get(code)
+    if base is None:
+        return None
 
-    if len(sys.argv) > 1:
-        raw = " ".join(sys.argv[1:])
-    else:
-        raw = input("Enter VIN (17 characters): ")
+    # VIN codes repeat every 30 years; bias toward newer vehicles.
+    this_year = datetime.now().year
+    year = base
+    while year + 30 <= this_year + 1:
+        year += 30
+    return year
 
-    vin = vin_clean(raw)
 
-    print(f"\nVIN: {BOLD}{vin}{RESET}")
+def vin_decode_country_and_make(v: str) -> tuple[str, str]:
+    first = v[0]
+    wmi = v[:3]
 
-    if len(vin) != 17:
-        print(f"{RED}ERROR:{RESET} VIN must be 17 characters.")
-        sys.exit(1)
+    country = VIN_COUNTRY.get(first, "Unknown / Other")
+    make = VIN_WMI.get(wmi, "Unknown manufacturer")
 
-    if not vin_valid_chars(vin):
-        print(f"{YELLOW}Warning:{RESET} VIN contains I, O, or Q (usually invalid).")
+    return country, make
 
-    region = vin_region(vin)
-    make = vin_make(vin)
-    year = vin_model_year(vin)
+
+def vin_prompt() -> str | None:
+    gn_header("VIN TOOLS")
+    vin = vin_clean(input("\nEnter VIN (17 chars, or Enter to cancel): "))
+    if not vin:
+        pause("Cancelled.")
+        return None
+
+    ok, msg = vin_basic_checks(vin)
+    if not ok:
+        pause(f"Invalid VIN: {msg}")
+        return None
+
+    return vin
+
+
+def vin_save_history(vin: str,
+                     country: str,
+                     make: str,
+                     year: int | None,
+                     chk_ok: bool) -> None:
+    VIN_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    is_new = not VIN_HISTORY.exists()
+
+    with VIN_HISTORY.open("a", newline="", encoding="utf-8") as f:
+        if is_new:
+            f.write("timestamp,vin,country,make,year,check_ok\n")
+        ts = datetime.now().isoformat(timespec="seconds")
+        y = str(year) if year is not None else ""
+        ok_flag = "yes" if chk_ok else "no"
+        f.write(f"{ts},{vin},{country},{make},{y},{ok_flag}\n")
+
+
+def vin_show_history() -> None:
+    gn_header("VIN HISTORY")
+    if not VIN_HISTORY.exists():
+        print("\nNo VIN lookups recorded yet.\n")
+        pause()
+        return
+
+    print("\nRecent VIN lookups:\n")
+    # print last ~20 lines (skip header)
+    lines = VIN_HISTORY.read_text(encoding="utf-8").splitlines()
+    for line in lines[-20:]:
+        if line.startswith("timestamp"):
+            continue
+        print("  " + line)
+
+    print("\nFormat: time, VIN, country, make, year, check_ok\n")
+    pause()
+
+
+def vin_open_in_browser(vin: str) -> None:
+    url = (
+        "https://vpic.nhtsa.dot.gov/decoder/"
+        f"VinDecoder?VIN={vin}&ModelYear="
+    )
+    print(f"\nOpening NHTSA VIN decoder in browser...")
+    os.system(f'xdg-open "{url}" >/dev/null 2>&1')
+    print("If it errors, check your internet connection.\n")
+
+
+def vin_decode_local(vin: str) -> None:
+    country, make = vin_decode_country_and_make(vin)
+    year = vin_decode_year_code(vin[9])
+    chk_ok, chk_msg = vin_check_digit_status(vin)
     plant = vin[10]
     serial = vin[11:]
 
-    expected, matches = vin_check_digit(vin)
+    gn_header("VIN QUICK DECODE")
 
-    print("\nBasic decode:")
-    print(f"  Region       : {region}")
-    print(f"  WMI (1-3)    : {vin[:3]}  →  {make}")
-    if year:
-        print(f"  Model year   : {year} (from 10th char '{vin[9]}')")
+    print(f"VIN:          {vin}")
+    print(f"Country:      {country}")
+    print(f"Manufacturer: {make}")
+    if year is not None:
+        print(f"Model year:   ~{year} (from 10th digit)")
     else:
-        print(f"  Model year   : Unknown (10th char '{vin[9]}')")
-    print(f"  Plant code   : {plant}")
-    print(f"  Serial       : {serial}")
+        print("Model year:   Unknown code")
 
-    print("\nCheck digit:")
-    if expected is None:
-        print(f"  {YELLOW}Could not compute check digit (invalid characters).{RESET}")
-    else:
-        actual = vin[8]
-        status = (
-            f"{GREEN}OK{RESET}" if matches else f"{RED}MISMATCH{RESET}"
-        )
-        print(f"  Calculated   : {expected}")
-        print(f"  VIN digit    : {actual}")
-        print(f"  Status       : {status}")
+    print(f"Plant code:   {plant}  (11th digit)")
+    print(f"Serial:       {serial}")
+    print(f"Check digit:  {'OK' if chk_ok else 'MISMATCH'} "
+          f"({chk_msg})")
 
-    # NHTSA URL suggestion
-    nhtsa_url = f"https://vpic.nhtsa.dot.gov/decoder/Decoder/Decode?VIN={vin}"
-    print(f"\nFor full decode, you can use NHTSA:")
-    print(f"  {CYAN}{nhtsa_url}{RESET}")
+    print("\nUse the NHTSA link for full body/engine/options.\n")
 
-    choice = input("\nOpen NHTSA VIN decoder in browser? [y/N]: ").strip().lower()
-    if choice == "y":
-        try:
-            webbrowser.open(nhtsa_url)
-            print(f"{GREEN}Opened in browser.{RESET}")
-        except Exception as e:
-            print(f"{RED}Could not open browser:{RESET} {e}")
+    # save to history
+    vin_save_history(vin, country, make, year, chk_ok)
+
+    # optional: open web?
+    ans = input("Open full NHTSA decoder in browser? [y/N]: ").strip()
+    if ans.lower().startswith("y"):
+        vin_open_in_browser(vin)
+
+    pause()
+    
+    
+    
+    
+    def run_vin_menu() -> None:
+    while True:
+        gn_header("VIN TOOLS")
+
+        print("1) Quick VIN decode (local)")
+        print("2) Open VIN in NHTSA browser")
+        print("3) View VIN history")
+        print("4) Back\n")
+
+        choice = input("Choose an option [1-4]: ").strip()
+
+        if choice == "1":
+            vin = vin_prompt()
+            if vin:
+                vin_decode_local(vin)
+
+        elif choice == "2":
+            vin = vin_prompt()
+            if vin:
+                vin_open_in_browser(vin)
+                pause()
+
+        elif choice == "3":
+            vin_show_history()
+
+        elif choice in ("4", "q", "Q"):
+            return
+
+        else:
+            pause("Invalid choice.")
+            
+            
+print("1) Customer Menu")
+print("2) Create New Invoice")
+print("3) View Invoice History")
+print("4) System / Tools")
+print("5) Expenses & Write-Offs")
+print("6) VIN Tools")
+print("7) Exit\n")
+
+choice = input("Choose an option [1-7]: ").strip()
 
 
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\nExiting VIN helper...")
+elif choice == "6":
+    run_vin_menu()
+elif choice == "7":
+    print("\nGood 'Nuff out.\n")
+    break
