@@ -1,176 +1,93 @@
-# ------------ VIN HELPER FUNCTIONS (UPGRADED) ------------
+def vin_attach_to_customer() -> None:
+    """Pick an existing customer and attach/update their VIN."""
 
-def vin_clean(v: str) -> str:
-    """Uppercase + strip spaces."""
-    return v.strip().upper()
-
-
-def vin_basic_checks(v: str) -> tuple[bool, str]:
-    """Quick validation: length / allowed chars only."""
-    if len(v) != 17:
-        return False, "VIN must be exactly 17 characters."
-
-    bad = [ch for ch in v if ch in VIN_FORBIDDEN]
-    if bad:
-        return False, f"VIN cannot contain I, O, or Q (found: {''.join(bad)})."
-
-    for ch in v:
-        if not ch.isalnum():
-            return False, "VIN must use only letters and numbers."
-
-    return True, ""
-
-
-def vin_transliterate(ch: str) -> int:
-    """Letter → number for check-digit calc."""
-    table = {
-        "A": 1, "B": 2, "C": 3, "D": 4, "E": 5,
-        "F": 6, "G": 7, "H": 8, "J": 1, "K": 2,
-        "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
-        "S": 2, "T": 3, "U": 4, "V": 5, "W": 6,
-        "X": 7, "Y": 8, "Z": 9,
-    }
-    if ch.isdigit():
-        return int(ch)
-    return table.get(ch, 0)
-
-
-def vin_calc_check_digit(v: str) -> str:
-    """ISO 3779 check-digit for VIN."""
-    weights = [8, 7, 6, 5, 4, 3, 2, 10,
-               0, 9, 8, 7, 6, 5, 4, 3, 2]
-    total = 0
-    for i, ch in enumerate(v):
-        total += vin_transliterate(ch) * weights[i]
-    remainder = total % 11
-    return "X" if remainder == 10 else str(remainder)
-
-
-def vin_check_digit_status(v: str) -> tuple[bool, str]:
-    """Return (ok?, desc)."""
-    actual = v[8]
-    expected = vin_calc_check_digit(v)
-    ok = (actual == expected)
-    msg = f"Actual {actual}, expected {expected}"
-    return ok, msg
-
-
-def vin_decode_year_code(code: str) -> int | None:
-    """Return model year (rough guess, biased toward newer)."""
-    year_map = {
-        "A": 1980, "B": 1981, "C": 1982, "D": 1983,
-        "E": 1984, "F": 1985, "G": 1986, "H": 1987,
-        "J": 1988, "K": 1989, "L": 1990, "M": 1991,
-        "N": 1992, "P": 1993, "R": 1994, "S": 1995,
-        "T": 1996, "V": 1997, "W": 1998, "X": 1999,
-        "Y": 2000,
-        "1": 2001, "2": 2002, "3": 2003, "4": 2004,
-        "5": 2005, "6": 2006, "7": 2007, "8": 2008,
-        "9": 2009,
-    }
-    base = year_map.get(code)
-    if base is None:
-        return None
-
-    this_year = datetime.now().year
-    year = base
-    # VIN codes repeat every 30 years; bias toward current-ish.
-    while year + 30 <= this_year + 1:
-        year += 30
-    return year
-
-
-def vin_decode_country_and_make(v: str) -> tuple[str, str]:
-    first = v[0]
-    wmi = v[:3]
-    country = VIN_COUNTRY.get(first, "Unknown / Other")
-    make = VIN_WMI.get(wmi, "Unknown manufacturer")
-    return country, make
-
-
-def vin_suspicious_flags(v: str,
-                         chk_ok: bool,
-                         country: str,
-                         make: str,
-                         year: int | None) -> list[str]:
-    """Return list of warning strings for 'sketchy' VINs."""
-    flags: list[str] = []
-
-    if not chk_ok:
-        flags.append("Check digit mismatch (possible typo / fake).")
-
-    serial = v[11:]
-    if serial in ("000000", "000001", "123456"):
-        flags.append("Serial number looks generic (000000 / 123456).")
-
-    if country.startswith("Unknown"):
-        flags.append("Unknown country/region from first character.")
-
-    if make.startswith("Unknown"):
-        flags.append("Unknown or uncommon WMI (manufacturer).")
-
-    if year is None:
-        flags.append("Could not decode model year from 10th digit.")
-
-    return flags
-
-
-def vin_prompt() -> str | None:
-    gn_header("VIN TOOLS")
-    vin = vin_clean(input("\nEnter VIN (17 chars, or Enter to cancel): "))
-    if not vin:
-        pause("Cancelled.")
-        return None
-
-    ok, msg = vin_basic_checks(vin)
-    if not ok:
-        pause(f"Invalid VIN: {msg}")
-        return None
-
-    return vin
-
-
-def vin_save_history(vin: str,
-                     country: str,
-                     make: str,
-                     year: int | None,
-                     chk_ok: bool) -> None:
-    VIN_HISTORY.parent.mkdir(parents=True, exist_ok=True)
-    is_new = not VIN_HISTORY.exists()
-
-    with VIN_HISTORY.open("a", newline="", encoding="utf-8") as f:
-        if is_new:
-            f.write("timestamp,vin,country,make,year,check_ok\n")
-        ts = datetime.now().isoformat(timespec="seconds")
-        y = str(year) if year is not None else ""
-        ok_flag = "yes" if chk_ok else "no"
-        f.write(f"{ts},{vin},{country},{make},{y},{ok_flag}\n")
-
-
-def vin_show_history() -> None:
-    gn_header("VIN HISTORY")
-
-    if not VIN_HISTORY.exists():
-        print("\nNo VIN lookups recorded yet.\n")
-        pause()
+    if not CUSTOMERS.exists():
+        pause("No customers.csv found. Add a customer first.")
         return
 
-    print("\nRecent VIN lookups (time, VIN, country, make, year, ok):\n")
-    lines = VIN_HISTORY.read_text(encoding="utf-8").splitlines()
-    for line in lines[-20:]:
-        if line.startswith("timestamp"):
-            continue
-        print("  " + line)
+    # Load customers
+    with CUSTOMERS.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        rows = list(reader)
 
-    print()
-    pause()
+    if not rows:
+        pause("No customers found in customers.csv.")
+        return
 
+    gn_header("ATTACH VIN TO CUSTOMER")
 
-def vin_open_in_browser(vin: str) -> None:
-    url = (
-        "https://vpic.nhtsa.dot.gov/decoder/"
-        f"VinDecoder?VIN={vin}&ModelYear="
-    )
-    print(f"\nOpening NHTSA VIN decoder in browser...")
-    os.system(f'xdg-open "{url}" >/dev/null 2>&1')
-    print("If it errors, check your internet connection.\n")
+    print("Existing customers:\n")
+    for row in rows:
+        cid = row.get("customer_id", "").strip()
+        name = row.get("name", "").strip()
+        veh = row.get("vehicle", "").strip()
+        plate_vin = row.get("plate_or_vin", "").strip()
+        display = veh if veh else "(no vehicle on file)"
+        extra = f" VIN: {plate_vin}" if len(plate_vin) == 17 else ""
+        print(f"  {cid}. {name}  –  {display}{extra}")
+
+    chosen = input("\nEnter customer_id to update (or Enter to cancel): ").strip()
+    if not chosen:
+        pause("Cancelled.")
+        return
+
+    target = None
+    for row in rows:
+        if row.get("customer_id", "").strip() == chosen:
+            target = row
+            break
+
+    if target is None:
+        pause(f"No customer found with id {chosen}.")
+        return
+
+    print(f"\nSelected: {target.get('name','(unknown)')}")
+
+    vin_in = input("Enter VIN to attach (17 chars): ").strip().upper()
+    vin_in = vin_clean(vin_in)
+
+    ok, msg = vin_basic_checks(vin_in)
+    if not ok:
+        pause(f"Invalid VIN: {msg}")
+        return
+
+    # Decode to generate a vehicle summary
+    country, make = vin_decode_country_and_make(vin_in)
+    year = vin_decode_year_code(vin_in[9])
+    chk_ok, _ = vin_check_digit_status(vin_in)
+
+    summary_parts = []
+    if year is not None:
+        summary_parts.append(str(year))
+    if make and not make.startswith("Unknown"):
+        summary_parts.append(make)
+    veh_summary = " ".join(summary_parts) if summary_parts else ""
+
+    print("\nWill set:")
+    print(f"  plate_or_vin → {vin_in}")
+    if veh_summary:
+        print(f"  vehicle      → {veh_summary}")
+
+    confirm = input("\nApply these changes? [y/N]: ").strip().lower()
+    if not confirm.startswith("y"):
+        pause("Cancelled.")
+        return
+
+    target["plate_or_vin"] = vin_in
+    if veh_summary:
+        target["vehicle"] = veh_summary
+
+    # Write CSV back
+    fieldnames = [
+        "customer_id", "name", "phone", "email",
+        "vehicle", "plate_or_vin", "notes",
+    ]
+    with CUSTOMERS.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    # log to VIN history too
+    vin_save_history(vin_in, country, make, year, chk_ok)
+
+    pause("Customer VIN updated.")
