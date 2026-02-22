@@ -1,54 +1,123 @@
-def vin_decode_local(vin: str) -> None:
-    country, make = vin_decode_country_and_make(vin)
-    year = vin_decode_year_code(vin[9])
-    chk_ok, chk_msg = vin_check_digit_status(vin)
-    plant = vin[10]
-    serial = vin[11:]
-
-    gn_header("VIN QUICK DECODE")
-
-    summary_parts = []
-    if year is not None:
-        summary_parts.append(str(year))
-    if make and not make.startswith("Unknown"):
-        summary_parts.append(make)
-    if country and not country.startswith("Unknown"):
-        summary_parts.append(f"({country})")
-
-    summary = " ".join(summary_parts) if summary_parts else "Unknown vehicle"
-
-    print(f"{BOLD}VIN          :{RESET} {vin}")
-    print(f"{BOLD}Summary      :{RESET} {summary}")
-    print(f"{BOLD}Country      :{RESET} {country}")
-    print(f"{BOLD}Manufacturer :{RESET} {make}")
-    if year is not None:
-        print(f"{BOLD}Model year   :{RESET} ~{year} (10th digit '{vin[9]}')")
-    else:
-        print(f"{BOLD}Model year   :{RESET} Unknown (10th digit '{vin[9]}')")
-
-    print(f"{BOLD}Plant code   :{RESET} {plant} (11th digit)")
-    print(f"{BOLD}Serial       :{RESET} {serial}")
-
-    status_color = GREEN if chk_ok else RED
-    print(
-        f"{BOLD}Check digit  :{RESET} "
-        f"{status_color}{'OK' if chk_ok else 'MISMATCH'}{RESET} "
-        f"({chk_msg})"
-    )
-
-    flags = vin_suspicious_flags(vin, chk_ok, country, make, year)
-    if flags:
-        print(f"\n{YELLOW}Warnings:{RESET}")
-        for fmsg in flags:
-            print(f"  - {fmsg}")
-    else:
-        print(f"\n{GREEN}VIN looks consistent with known patterns.{RESET}")
-
-    # save to history
-    vin_save_history(vin, country, make, year, chk_ok)
-
-    ans = input("\nOpen full NHTSA decoder in browser? [y/N]: ").strip()
-    if ans.lower().startswith("y"):
-        vin_open_in_browser(vin)
-
-    pause()
+VIN_WMI = {
+    "1G1": "Chevrolet (USA)",
+    "1G2": "Pontiac (USA)",
+    "1G3": "Oldsmobile (USA)",
+    "1G4": "Buick (USA)",
+    "1G6": "Cadillac (USA)",
+    "1GC": "Chevrolet Truck (USA)",
+    "1GT": "GMC Truck (USA)",
+    "1GY": "Cadillac SUV (USA)",
+    "2G1": "Chevrolet (Canada)",
+    "2G2": "Pontiac (Canada)",
+    "2G4": "Buick (Canada)",
+    "2GK": "GMC SUV (Canada)",
+    "3G1": "Chevrolet (Mexico)",
+    "3GC": "Chevrolet Truck (Mexico)",
+    "3GT": "GMC Truck (Mexico)",
+    "5GA": "Buick Enclave (USA)",
+    "5GZ": "Saturn (USA)",
+    "1FA": "Ford (USA) – cars",
+    "1FB": "Ford (USA) – vans",
+    "1FC": "Ford (USA) – chassis",
+    "1FD": "Ford (USA) – trucks",
+    "1FM": "Ford (USA) – SUVs",
+    "1FT": "Ford (USA) – F-series trucks",
+    "1LN": "Lincoln (USA)",
+    "2FA": "Ford (Canada)",
+    "2FM": "Ford SUV (Canada)",
+    "2FT": "Ford Truck (Canada)",
+    "3FA": "Ford (Mexico) – cars",
+    "3LN": "Lincoln (Mexico)",
+    "5LM": "Lincoln (USA)",
+    "1B3": "Dodge (USA)",
+"1B4": "Dodge SUV (USA)",
+    "1B7": "Dodge Truck (USA)",
+    "1C3": "Chrysler (USA)",
+    "1C4": "Chrysler/Jeep (USA)",
+    "1C6": "RAM (USA)",
+    "1D3": "RAM/Dodge Truck (USA)",
+    "1D7": "RAM/Dodge Pickup (USA)",
+    "2B3": "Dodge (Canada)",
+    "2B4": "Dodge SUV (Canada)",
+    "2B7": "Dodge Truck (Canada)",
+    "2C3": "Chrysler (Canada)",
+    "3B3": "Dodge (Mexico)",
+    "3B4": "Dodge SUV (Mexico)",
+    "3B7": "Dodge Truck (Mexico)",
+    "3C3": "Chrysler (Mexico)",
+    "3D3": "RAM/Dodge Truck (Mexico)",
+    "3D7": "RAM/Dodge Pickup (Mexico)",
+    "1J4": "Jeep (USA)",
+    "1J8": "Jeep SUV (USA)",
+    "2J4": "Jeep (Canada)",
+    "3J4": "Jeep (Mexico)",
+    "3J8": "Jeep SUV (Mexico)",
+    "ZFA": "Fiat (Italy)",
+    "ZAR": "Alfa Romeo (Italy)",
+    "ZAM": "Maserati (Italy)",
+    "1HG": "Honda (USA)",
+    "1HM": "Honda (USA)",
+    "2HG": "Honda (Canada)",
+    "3HG": "Honda (Mexico)",
+    "3CZ": "Honda SUV (Mexico)",
+    "5FNY": "Honda Pilot (USA)",
+    "5J6": "Honda CR-V (USA)",
+"5J8": "Acura (USA)",
+    "JHM": "Honda (Japan)",
+    "JHL": "Honda SUV (Japan)",
+    "JH4": "Acura (Japan)",
+    "1NX": "Toyota (USA)",
+    "2T1": "Toyota (Canada)",
+    "2T3": "Toyota SUV (Canada)",
+    "4T1": "Toyota (USA) – Camry",
+    "4T3": "Toyota SUV (USA)",
+    "5TD": "Toyota SUV/Minivan (USA)",
+    "JTD": "Toyota (Japan)",
+    "JTE": "Toyota SUV (Japan)",
+    "JT3": "Toyota Truck/SUV (Japan)",
+    "JT2": "Toyota Passenger (Japan)",
+    "JT8": "Lexus (Japan)",
+    "JTL": "Scion (Japan)",
+    "1N4": "Nissan (USA)",
+    "1N6": "Nissan Truck (USA)",
+    "3N1": "Nissan (Mexico)",
+    "3N6": "Nissan Truck (Mexico)",
+    "5N1": "Nissan SUV (USA)",
+    "5N3": "Infiniti SUV (USA)",
+    "JN1": "Nissan (Japan)",
+    "JN8": "Nissan SUV (Japan)",
+    "JNK": "Infiniti (Japan)",
+    "4S3": "Subaru (USA) – cars",
+    "4S4": "Subaru (USA) – SUVs",
+    "JF1": "Subaru (Japan)",
+    "JF2": "Subaru (Japan) – SUVs/Forester",
+    "5NP": "Hyundai (USA)",
+    "5NM": "Hyundai SUV (USA)",
+    "5XX": "Kia (USA)",
+"5XY": "Kia SUV (USA)",
+    "KMH": "Hyundai (Korea)",
+    "KMF": "Hyundai Luxury (Korea)",
+    "KNA": "Kia (Korea)",
+    "KND": "Kia SUV (Korea)",
+    "KNC": "Genesis (Korea)",
+    "1VW": "Volkswagen (USA)",
+    "3VW": "Volkswagen (Mexico)",
+    "WVW": "Volkswagen (Germany)",
+    "WAU": "Audi (Germany)",
+    "WA1": "Audi SUV (Germany)",
+    "TRU": "Audi TT (Germany)",
+    "4US": "BMW (USA)",
+    "5UX": "BMW SUV (USA)",
+    "WBA": "BMW (Germany)",
+    "WBS": "BMW M Division (Germany)",
+    "WBX": "BMW SUV (Germany)",
+    "WMW": "Mini (UK/Germany)",
+    "YV1": "Volvo (Sweden)",
+    "YV4": "Volvo SUV (Sweden)",
+    "WP0": "Porsche (Germany)",
+    "WP1": "Porsche SUV (Germany)",
+    "SAJ": "Jaguar (UK)",
+    "SAL": "Land Rover (UK)",
+    "ZFA": "Fiat (Italy)",
+    "ZAR": "Alfa Romeo (Italy)",
+    "ZAM": "Maserati (Italy)",
