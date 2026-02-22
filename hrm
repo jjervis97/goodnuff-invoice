@@ -1,103 +1,13 @@
-def vin_decode_local(vin: str) -> None:
-    """
-    Quick VIN decode with:
-      - offline checks (country, make, year, check digit, warnings)
-      - optional online NHTSA details if internet works
-      - log into vin_history.csv
-    """
-    gn_header("VIN QUICK DECODE")
-
-    vin = vin_clean(vin)
-
-    ok, msg = vin_basic_checks(vin)
-    if not ok:
-        print(f"{RED}Invalid VIN:{RESET} {msg}\n")
-        pause()
-        return
-
-    # Basic offline decode
-    country, make = vin_decode_country_and_make(vin)
-    year = vin_decode_year_code(vin[9])
-    chk_ok, chk_msg = vin_check_digit_status(vin)
-    plant = vin[10]
-    serial = vin[11:]
-
-    # Build a simple offline summary
-    summary_parts = []
-    if year is not None:
-        summary_parts.append(str(year))
-    if make and not make.startswith("Unknown"):
-        summary_parts.append(make)
-    if country and not country.startswith("Unknown"):
-        summary_parts.append(f"({country})")
-    offline_summary = " ".join(summary_parts) if summary_parts else "Unknown vehicle"
-
-    # Print offline info
-    print(f"{BOLD}VIN         :{RESET} {vin}")
-    print(f"{BOLD}Summary     :{RESET} {offline_summary}")
-    print(f"{BOLD}Country     :{RESET} {country}")
-    print(f"{BOLD}Manufacturer:{RESET} {make}")
-    if year is not None:
-        print(f"{BOLD}Model year  :{RESET} ~{year} (10th digit '{vin[9]}')")
-    else:
-        print(f"{BOLD}Model year  :{RESET} Unknown (10th digit '{vin[9]}')")
-
-    print(f"{BOLD}Plant code  :{RESET} {plant} (11th digit)")
-    print(f"{BOLD}Serial      :{RESET} {serial}")
-
-    status_color = GREEN if chk_ok else RED
-    print(
-        f"{BOLD}Check digit :{RESET} "
-        f"{status_color}{'OK' if chk_ok else 'MISMATCH'}{RESET} "
-        f"({chk_msg})"
-    )
-
-    # Optional: online NHTSA decode
-    online = ""
-    api_row = vin_fetch_online(vin)
-    if api_row:
-        print()
-        print(" Online decode (NHTSA):")
-        print(" " + "-" * 40)
-        online = vin_online_summary(api_row)
-        if online:
-            for line in online.splitlines():
-                print(" ", line)
-        else:
-            print("  (No extra details from API.)")
-
-    # Simple warning flags
-    flags = []
-    if not chk_ok:
-        flags.append("Check digit mismatch (possible typo / fake VIN).")
-    if country.startswith("Unknown"):
-        flags.append("Unknown country/region from first character.")
-    if make.startswith("Unknown"):
-        flags.append("Unknown or uncommon WMI (manufacturer).")
-    if year is None:
-        flags.append("Could not decode model year from 10th digit.")
-    if serial in ("000000", "000001", "123456"):
-        flags.append("Serial number looks generic (000000 / 000001 / 123456).")
-
-    if flags:
-        print(f"\n{YELLOW}Warnings:{RESET}")
-        for fmsg in flags:
-            print(f"  - {fmsg}")
-    else:
-        print(f"\n{GREEN}VIN looks consistent with known patterns.{RESET}")
-
-    # Log into history file
+def vin_fetch_online(vin: str) -> dict | None:
+    """Fetch full decoded VIN info from NHTSA API. Returns dict or None."""
     try:
-        base_summary = offline_summary
-        full_summary = base_summary + (" | " + online if online else "")
-        vin_log_history(vin, full_summary)
-    except Exception:
-        # If logging fails, we don't want to crash the decoder.
-        pass
-
-    # Offer to open browser
-    ans = input("\nOpen full NHTSA decoder in browser? [y/N]: ").strip().lower()
-    if ans.startswith("y"):
-        vin_open_in_browser(vin)
-
-    pause()
+        url = f"https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvalues/{vin}?format=json"
+        with urllib.request.urlopen(url, timeout=6) as resp:
+            raw = resp.read().decode("utf-8")
+        data = json.loads(raw)
+        if "Results" in data and len(data["Results"]) > 0:
+            return data["Results"][0]
+        return None
+    except Exception as e:
+        print(f"\n{YELLOW}WARNING: Online VIN lookup failed ({e}).{RESET}")
+        return None
