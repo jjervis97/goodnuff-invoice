@@ -1,0 +1,608 @@
+#!/usr/bin/env python3
+
+import webbrowser
+import os
+import sys
+import subprocess
+import time
+import csv
+import json
+import urllib.request
+import urllib.error
+from pathlib import Path
+from datetime import datetime
+
+# ===== GOOD 'NUFF STYLE ====="
+RESET  = "\033[0m"
+BOLD   = "\033[1m"
+MAGENTA = "\033[95m"
+GRAY = "\033[90mm"
+RED    = "\033[31m"
+GREEN  = "\033[32m"
+YELLOW = "\033[33m"
+BLUE   = "\033[34m"
+CYAN   = "\033[36m"
+
+# ===== PATH SETUP =====
+
+HOME_DIR      = Path.home()
+GARAGE        = HOME_DIR / "garage"
+BUSINESS      = GARAGE / ".business"
+CUSTOMERS_DIR = BUSINESS / "customers"
+EXPENSES_DIR  = BUSINESS / "expenses"
+INVOICES_DIR  = BUSINESS / "invoices"
+JOBS_DIR      = BUSINESS / "jobs"
+SETTINGS_DIR  = BUSINESS / "settings"
+INVOICE_SCRIPT = os.path.expanduser("~/garage/invoice")
+CUSTOMERS_CSV = CUSTOMERS_DIR / "customers.csv"
+EXPENSES_CSV  = EXPENSES_DIR / "expenses.csv"
+INVOICES_CSV  = INVOICES_DIR / "invoices.csv"
+VIN_HISTORY   = GARAGE / "vin_history.csv"
+
+def gn_header(title: str) -> None:
+    os.system("clear")
+
+    # Try to generate the figlet banner; fall back to plain text if figlet is missing
+    try:
+        banner = subprocess.check_output(
+            ["figlet", "-f", "small", "GOOD 'NUFF GARAGE"],
+            text=True
+        )
+    except Exception:
+        banner = "GOOD 'NUFF GARAGE"
+
+    lines = banner.splitlines()
+
+    # Animated print of the figlet banner (cyan + bold)
+    for line in lines:
+        colored = f"{CYAN}{BOLD}{line}{RESET}"
+        print(colored.center(80))
+        time.sleep(0.04)  # tweak speed if you want faster/slower
+
+    # Title bar under the banner
+    bar = "-" * 50
+    print()
+    print(f"{YELLOW}{bar.center(80)}{RESET}")
+    print(f"{CYAN}{title.center(80)}{RESET}")
+    print(f"{YELLOW}{bar.center(80)}{RESET}")
+    print()
+
+# ===== GENERIC HELPERS =====
+
+def run_invoice():
+    try:
+        subprocess.run(["python3", INVOICE_SCRIPT], check=True)
+    except FileNotFoundError:
+        print(f"\n[ERROR] Invoice script not found at {INVOICE_SCRIPT}\.n")
+    except subprocess.CalledProcessError as e:
+        print("Invoice script exited with an error.")
+        print(e)
+ 
+def pause(msg: str = "\nPress Enter to return to menu...") -> None:
+    input(msg)
+
+
+def ensure_business_tree() -> None:
+    for d in (BUSINESS, CUSTOMERS_DIR, EXPENSES_DIR, INVOICES_DIR, JOBS_DIR, SETTINGS_DIR):
+        d.mkdir(parents=True, exist_ok=True)
+
+    if not CUSTOMERS_CSV.exists():
+        with CUSTOMERS_CSV.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["customer_id", "name", "phone", "email", "vehicle", "plate_or_vin", "source", "created_at"])
+
+    if not EXPENSES_CSV.exists():
+        with EXPENSES_CSV.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["date", "category", "description", "amount"])
+
+    if not INVOICES_CSV.exists():
+        with INVOICES_CSV.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["date", "invoice_number", "customer",
+                             "vehicle", "status", "total"])
+
+
+def run_script_in_garage(script_name: str) -> None:
+    script = GARAGE / script_name
+    if not script.exists():
+        print(f"\nERROR: {script} not found.")
+        pause()
+        return
+
+    try:
+        subprocess.run([str(script)], check=False)
+    except KeyboardInterrupt:
+        print("\nCancelled by user.")
+        pause()
+    except Exception as e:
+        print(f"\nERROR running {script_name}: {e}")
+        pause()
+
+
+# ===== MENU ACTIONS =====
+
+def run_customer_menu() -> None:
+    """Launch customer/job menu (jobmenu script)."""
+    run_script_in_garage("jobmenu")
+
+
+def run_invoice_creator() -> None:
+    """Launch invoice creator."""
+    run_script_in_garage("invoice")
+
+
+def run_expenses_tool() -> None:
+    """Launch expenses tracker."""
+    run_script_in_garage("expenses")
+
+
+def view_invoice_history() -> None:
+    os.system("clear")
+    gn_header("INVOICE HISTORY")
+
+    if not INVOICES_CSV.exists():
+        print("\nNo invoices have been recorded yet.")
+        pause()
+        return
+
+    rows: list[list[str]] = []
+    with INVOICES_CSV.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.reader(f)
+        for row in reader:
+            rows.append(row)
+
+    if len(rows) <= 1:
+        print("\nNo invoices found in the log yet.")
+        pause()
+        return
+
+    header = rows[0]
+    data = rows[1:][-20:]  # last 20
+
+    print()
+    print("Last invoices (most recent at bottom):")
+    print("-" * 72)
+    print(f"{header[0]:<12} {header[1]:<20} {header[2]:<20} {header[5]:>10}")
+    print("-" * 72)
+    for r in data:
+        # date, number, customer, vehicle, status, total
+        date, num, cust, veh, status, total = (r + ["", "", "", "", "", ""])[:6]
+        print(f"{date:<12} {num:<20} {cust:<20} {total:>10}")
+    print("-" * 72)
+
+    pause()
+
+
+def system_tools() -> None:
+    """Tiny 'garage dashboard' with paths + file counts."""
+    os.system("clear")
+    gn_header("SYSTEM / TOOLS")
+
+    ensure_business_tree()
+
+    def count_rows(path: Path) -> int:
+        if not path.exists():
+            return 0
+        with path.open("r", encoding="utf-8", newline="") as f:
+            return max(sum(1 for _ in f) - 1, 0)  # minus header
+
+    cust_count = count_rows(CUSTOMERS_CSV)
+    inv_count  = count_rows(INVOICES_CSV)
+    exp_count  = count_rows(EXPENSES_CSV)
+
+    print("\nFolders:")
+    print(f"  BUSINESS : {BUSINESS}")
+    print(f"  CUSTOMERS: {CUSTOMERS_DIR}")
+    print(f"  INVOICES : {INVOICES_DIR}")
+    print(f"  EXPENSES : {EXPENSES_DIR}")
+    print("\nCounts:")
+    print(f"  Customers: {cust_count}")
+    print(f"  Invoices : {inv_count}")
+    print(f" BUSINESS : {vin_history}") 
+    print("\nIf anything looks wrong, fix paths in gn and rerun.")
+
+    pause()
+
+
+# ===== VIN DECODER – LOCAL + OPTIONAL ONLINE LOOKUP =====
+
+def vin_clean(v: str) -> str:
+    """Backwards-compatible wrapper"""
+    return "".join(ch for ch in v.strip().upper() if not ch.isspace())
+
+VIN_FORBIDDEN = set("IOQioq")
+
+VIN_COUNTRY = {
+    "1": "USA",
+    "2": "Canada",
+    "3": "Mexico",
+    "J": "Japan",
+    "K": "Korea",
+    "S": "United Kingdom",
+    "V": "France / Spain",
+    "W": "Germany",
+    "Y": "Scandinavia",
+    "Z": "Italy",
+}
+
+# A small starter WMI map – you can extend this with all the stuff you already typed.
+VIN_WMI = {
+    "1G1": "Chevrolet (USA)",
+    "1G2": "Pontiac (USA)",
+    "1G3": "Oldsmobile (USA)",
+    "1G4": "Buick (USA)",
+    "1G6": "Cadillac (USA)",
+    "1GC": "Chevrolet Truck (USA)",
+    "1GT": "GMC Truck (USA)",
+    "1GY": "Cadillac SUV (USA)",
+    "2G1": "Chevrolet (Canada)",
+    "2G2": "Pontiac (Canada)",
+    "2G4": "Buick (Canada)",
+    "2GK": "GMC SUV (Canada)",
+    "3G1": "Chevrolet (Mexico)",
+    "3GC": "Chevrolet Truck (Mexico)",
+    "3GT": "GMC Truck (Mexico)",
+    "5GA": "Buick Enclave (USA)",
+    "5GZ": "Saturn (USA)",
+    "1FA": "Ford (USA) – cars",
+    "1FB": "Ford (USA) – vans",
+    "1FC": "Ford (USA) – chassis",
+    "1FD": "Ford (USA) – trucks",
+    "1FM": "Ford (USA) – SUVs",
+    "1FT": "Ford (USA) – F-series trucks",
+    "1LN": "Lincoln (USA)",
+    "2FA": "Ford (Canada)",
+    "2FM": "Ford SUV (Canada)",
+    "2FT": "Ford Truck (Canada)",
+    "3FA": "Ford (Mexico) – cars",
+    "3LN": "Lincoln (Mexico)",
+    "5LM": "Lincoln (USA)",
+    "1B3": "Dodge (USA)",
+    "1B4": "Dodge SUV (USA)",
+    "1B7": "Dodge Truck (USA)",
+    "1C3": "Chrysler (USA)",
+    "1C4": "Chrysler/Jeep (USA)",
+    "1C6": "RAM (USA)",
+    "1D3": "RAM/Dodge Truck (USA)",
+    "1D7": "RAM/Dodge Pickup (USA)",
+    "2B3": "Dodge (Canada)",
+    "2B4": "Dodge SUV (Canada)",
+    "2B7": "Dodge Truck (Canada)",
+    "2C3": "Chrysler (Canada)",
+    "3B3": "Dodge (Mexico)",
+    "3B4": "Dodge SUV (Mexico)",
+    "3B7": "Dodge Truck (Mexico)",
+    "3C3": "Chrysler (Mexico)",
+    "3D3": "RAM/Dodge Truck (Mexico)",
+    "3D7": "RAM/Dodge Pickup (Mexico)",
+    "1J4": "Jeep (USA)",
+    "1J8": "Jeep SUV (USA)",
+    "2J4": "Jeep (Canada)",
+    "3J4": "Jeep (Mexico)",
+    "3J8": "Jeep SUV (Mexico)",
+    "ZFA": "Fiat (Italy)",
+    "ZAR": "Alfa Romeo (Italy)",
+    "ZAM": "Maserati (Italy)",
+    "1HG": "Honda (USA)",
+    "1HM": "Honda (USA)",
+    "2HG": "Honda (Canada)",
+    "3HG": "Honda (Mexico)",
+    "3CZ": "Honda SUV (Mexico)",
+    "5FNY": "Honda Pilot (USA)",
+    "5J6": "Honda CR-V (USA)",
+    "5J8": "Acura (USA)",
+    "JHM": "Honda (Japan)",
+    "JHL": "Honda SUV (Japan)",
+    "JH4": "Acura (Japan)",
+    "1NX": "Toyota (USA)",
+    "2T1": "Toyota (Canada)",
+    "2T3": "Toyota SUV (Canada)",
+    "4T1": "Toyota (USA) – Camry",
+    "4T3": "Toyota SUV (USA)",
+    "5TD": "Toyota SUV/Minivan (USA)",
+    "JTD": "Toyota (Japan)",
+    "JTE": "Toyota SUV (Japan)",
+    "JT3": "Toyota Truck/SUV (Japan)",
+    "JT2": "Toyota Passenger (Japan)",
+    "JT8": "Lexus (Japan)",
+    "JTL": "Scion (Japan)",
+    "1N4": "Nissan (USA)",
+    "1N6": "Nissan Truck (USA)",
+    "3N1": "Nissan (Mexico)",
+    "3N6": "Nissan Truck (Mexico)",
+    "5N1": "Nissan SUV (USA)",
+    "5N3": "Infiniti SUV (USA)",
+    "JN1": "Nissan (Japan)",
+    "JN8": "Nissan SUV (Japan)",
+    "JNK": "Infiniti (Japan)",
+    "4S3": "Subaru (USA) – cars",
+    "4S4": "Subaru (USA) – SUVs",
+    "JF1": "Subaru (Japan)",
+    "JF2": "Subaru (Japan) – SUVs/Forester",
+    "5NP": "Hyundai (USA)",
+    "5NM": "Hyundai SUV (USA)",
+    "5XX": "Kia (USA)",
+    "5XY": "Kia SUV (USA)",
+    "KMH": "Hyundai (Korea)",
+    "KMF": "Hyundai Luxury (Korea)",
+    "KNA": "Kia (Korea)",
+    "KND": "Kia SUV (Korea)",
+    "KNC": "Genesis (Korea)",
+    "1VW": "Volkswagen (USA)",
+    "3VW": "Volkswagen (Mexico)",
+    "WVW": "Volkswagen (Germany)",
+    "WAU": "Audi (Germany)",
+    "WA1": "Audi SUV (Germany)",
+    "TRU": "Audi TT (Germany)",
+    "4US": "BMW (USA)",
+    "5UX": "BMW SUV (USA)",
+    "WBA": "BMW (Germany)",
+    "WBS": "BMW M Division (Germany)",
+    "WBX": "BMW SUV (Germany)",
+    "WMW": "Mini (UK/Germany)",
+    "YV1": "Volvo (Sweden)",
+    "YV4": "Volvo SUV (Sweden)",
+    "WP0": "Porsche (Germany)",
+    "WP1": "Porsche SUV (Germany)",
+    "SAJ": "Jaguar (UK)",
+    "SAL": "Land Rover (UK)",
+    "ZFA": "Fiat (Italy)",
+    "ZAR": "Alfa Romeo (Italy)",
+    "ZAM": "Maserati (Italy)",
+}
+
+VIN_TRANSLITERATE = {
+    **{str(i): i for i in range(10)},
+    "A": 1, "B": 2, "C": 3, "D": 4, "E": 5, "F": 6, "G": 7, "H": 8,
+    "J": 1, "K": 2, "L": 3, "M": 4, "N": 5, "P": 7, "R": 9,
+    "S": 2, "T": 3, "U": 4, "V": 5, "W": 6, "X": 7, "Y": 8, "Z": 9,
+}
+
+VIN_WEIGHTS = [8, 7, 6, 5, 4, 3, 2, 10, 0, 9, 8, 7, 6, 5, 4, 3, 2]
+
+def vin_year_from_char(code: str) -> str:
+    code = code.upper()
+    year_map = {
+        "A": 2010, "B": 2011, "C": 2012, "D": 2013, "E": 2014,
+        "F": 2015, "G": 2016, "H": 2017, "J": 2018, "K": 2019,
+        "L": 2020, "M": 2021, "N": 2022, "P": 2023, "R": 2024,
+        "S": 2025, "T": 2026, "V": 2027, "W": 2028, "X": 2029,
+        "Y": 2030,
+        "1": 2001, "2": 2002, "3": 2003, "4": 2004, "5": 2005,
+        "6": 2006, "7": 2007, "8": 2008, "9": 2009,
+    }
+    return str(year_map.get(code, "Unknown"))
+
+def vin_decode_local(vin: str) -> dict[str, str]:
+    v = vin.strip().upper()
+
+    if len(v) != 17:
+        return {"vin": v, "error": f"VIN must be 17 chars (got {len(v)})"}
+
+    country = VIN_COUNTRY.get(v[0], "Unknown / other")
+    wmi = v[:3]
+    make = VIN_WMI.get(wmi, "Unknown manufacturer")
+    year_code = v[9]
+    model_year = vin_year_from_char(year_code)
+    plant = v[10]
+    serial = v[11:]
+    check_digit = v[8]
+
+    return {
+        "vin": v,
+        "country": country,
+        "make": make,
+        "model_year": model_year,
+        "plant": plant,
+        "serial": serial,
+        "check_digit": check_digit,
+    }
+
+def vin_fetch_online(vin: str):
+    """
+    Call NHTSA VPIC API and return the full JSON response dict,
+    or None if something goes wrong.
+    """
+    url = f"https://vpic.nhtsa.dot.gov/api/vehicles/decodevin/{vin}?format=json"
+
+    try:
+        result = subprocess.run(
+            ["curl", "-s", url],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except Exception as e:
+        print(f"\n[!] Online VIN lookup error: {e}")
+        return None
+
+    if result.returncode != 0 or not result.stdout.strip():
+        print("\n[!] Online VIN lookup failed (network or curl problem).")
+        return None
+
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print("\n[!] Could not parse NHTSA response (invalid JSON).")
+        return None
+
+    return data
+
+def vpic_field(results: list, name: str) -> str:
+    """Find a VPIC variable by name inside Results list."""
+    for row in results:
+        if row.get("Variable") == name:
+            value = row.get("Value")
+            if value not in (None, ""):
+                return str(value)
+    return ""
+
+def vin_online_full_print(vin: str) -> None:
+    """Run NHTSA online decode and print all specs in the terminal."""
+    data = vin_fetch_online(vin)
+    if not data:
+        # vin_fetch_online already printed an error
+        return
+
+    results = data.get("Results", [])
+
+    # --- Quick summary first ---
+    make = vpic_field(results, "Make")
+    model = vpic_field(results, "Model")
+    year = vpic_field(results, "Model Year") or vpic_field(results, "ModelYear")
+    body = vpic_field(results, "Body Class")
+    engine_l = vpic_field(results, "Displacement (L)")
+    cyl = vpic_field(results, "Engine Number of Cylinders")
+    fuel = vpic_field(results, "Fuel Type - Primary")
+
+    print("\n" + "=" * 60)
+    print(" ONLINE VIN DECODE (NHTSA)")
+    print("=" * 60)
+    print(f"VIN           : {vin}")
+    print(f"Year / Make   : {year} {make}".strip())
+    print(f"Model         : {model}")
+    print(f"Body Class    : {body}")
+    if engine_l or cyl:
+        print(f"Engine        : {engine_l}L {cyl} cyl".strip())
+    if fuel:
+        print(f"Fuel          : {fuel}")
+
+    # --- Plant info (if present) ---
+    plant_city = vpic_field(results, "Plant City")
+    plant_state = vpic_field(results, "Plant State")
+    plant_country = vpic_field(results, "Plant Country")
+    plant_bits = [plant_city, plant_state, plant_country]
+    plant = ", ".join([p for p in plant_bits if p])
+    if plant:
+        print(f"Plant         : {plant}")
+
+    # --- All non-empty variables ---
+    print("\nAll decoded variables:")
+    print("-" * 60)
+    for row in results:
+        var = row.get("Variable")
+        val = row.get("Value")
+        if var and val not in (None, ""):
+            print(f"{var}: {val}")
+
+def vin_open_full_in_browser(vin: str) -> None:
+    """Open the human-friendly NHTSA VIN decoder page in Chrome."""
+    url = f"https://vpic.nhtsa.dot.gov/decoder/Decoder?VIN={vin}"
+    try:
+        subprocess.Popen(
+            ["xdg-open", url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,  # quiet Chrome logs in this terminal
+        )
+    except FileNotFoundError:
+        print("\nCould not auto-open browser. You can visit this URL instead:")
+        print(url)
+
+def save_vin_history(vin_info: dict, online: dict | None) -> None:
+    VIN_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    new_file = not VIN_HISTORY.exists()
+    with VIN_HISTORY.open("a", newline="", encoding="utf-8") as f:
+        writer = csv.writer(f)
+        if new_file:
+            writer.writerow([
+                "timestamp", "vin", "country", "manufacturer", "model_year",
+                "online_make", "online_model", "online_year"
+            ])
+        ts = datetime.utcnow().isoformat(timespec="seconds")
+        writer.writerow([
+            ts,
+            vin_info["vin"],
+            vin_info["country"],
+            vin_info["manufacturer"],
+            vin_info["model_year"] or "",
+            (online or {}).get("Make", ""),
+            (online or {}).get("Model", ""),
+            (online or {}).get("ModelYear", ""),
+        ])
+
+def run_vin_quick_decode() -> None:
+    os.system("clear")
+    gn_header("VIN QUICK DECODE")
+
+    vin = input("\nEnter VIN (blank to cancel): ").strip()
+    if not vin:
+        return
+
+    v = vin_clean(vin)
+
+    if len(v) != 17 or any(c in VIN_FORBIDDEN for c in v):
+        print("\n!! VIN looks invalid (length or forbidden characters: I, O, Q).")
+        print(f"You entered: {v}")
+        pause()
+        return
+
+    info = vin_decode_local(v)
+
+    info.setdefault("manufacturer", info.get("make", "Unknown"))
+    info.setdefault("make", info.get("manufacturer", "Unknown"))
+
+    print("\nLocal decode:")
+    print("-" * 60)
+    print(f"VIN         : {info['vin']}")
+    print(f"Country     : {info['country']}")
+    print(f"Manufacturer: {info['manufacturer']}")
+    print(f"Model year  : {info['model_year'] or 'Unknown'}")
+    print(f"Plant code  : {info.get('plant', info.get('plant_code', '?'))}")
+    print(f"Serial      : {info['serial']}")
+    
+    check = info.get("check_digit")
+    if check:
+        print(f"Check digit : {check}")
+
+    print()
+    use_online = input("\nRun online NHTSA decode as well? [Y/n]: ").strip().lower()
+    if use_online in ("", "y", "yes"):
+        vin_online_full_print(vin)
+        pause()  # if you have a pause() helper so you can read it
+# ===== MAIN MENU LOOP =====
+
+def main() -> None:
+    ensure_business_tree()
+
+    while True:
+        os.system("clear")
+        gn_header("GARAGE DASHBOARD")
+
+        # extra nreathing room
+        print(f"{CYAN}  1){RESET} Customer Menu")
+        print(f"{CYAN}  2){RESET} Create New Invoice")
+        print(f"{CYAN}  3){RESET} View Invoice History")
+        print()
+        print(f"{YELLOW}  4){RESET} System / Tools")
+        print(f"{YELLOW}  5){RESET} Expenses & Write-Offs")
+        print()
+        print(f"{MAGENTA}  6){RESET} VIN Quick Decode")
+        print(f"{MAGENTA}  7){RESET} Exit\n")
+        print()
+
+        print(f"{GRAY}{'-' * 60}{RESET}")
+        choice = input(f"{BOLD}Choose an option [1-7]: {RESET} ").strip()
+
+        if choice == "1":
+            run_customer_menu()
+        elif choice == "2":
+            run_invoice()
+        elif choice == "3":
+            view_invoice_history()
+        elif choice == "4":
+            system_tools()
+        elif choice == "5":
+            run_expenses_tool()
+        elif choice == "6":
+            run_vin_quick_decode()
+        elif choice == "7" or choice.lower() == "q":
+            print("\nGood 'Nuff out.\n")
+            break
+        else:
+            print("\nInvalid choice, try again.")
+            pause()
+
+if __name__ == "__main__":
+    main()
