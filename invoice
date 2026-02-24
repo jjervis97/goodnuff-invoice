@@ -1,0 +1,396 @@
+#!/usr/bin/env python3
+
+from pathlib import Path
+from datetime import datetime
+import csv
+import os
+import random
+
+# Try to import reportlab for PDF generation
+try:
+    from reportlab.lib.pagesizes import letter
+    from reportlab.pdfgen import canvas
+    from reportlab.lib import colors
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+# ====== BASIC BUSINESS INFO (edit these to match your details) ======
+BUSINESS_NAME = "GOOD 'NUFF MOBILE MECHANIC"
+OWNER_NAME = "Jeremiah Jervis"
+PHONE = ":(828) 974-1684"   # e.g. "828-555-5555"
+EMAIL = "goodnuffmechanic@gmail.com"   # e.g. "goodnuff@example.com"
+
+# ====== PATHS ======
+HOME_DIR = Path.home()
+GARAGE = HOME_DIR / "garage"
+BUSINESS = GARAGE / ".business"
+INVOICES_DIR = BUSINESS / "invoices"
+INVOICES_CSV = INVOICES_DIR / "invoices.csv"
+OUTGOING_DIR = HOME_DIR / "Outgoing"   # where PDFs will be saved
+
+
+def ensure_dirs() -> None:
+    """Make sure needed folders exist."""
+    INVOICES_DIR.mkdir(parents=True, exist_ok=True)
+    OUTGOING_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def next_invoice_number() -> str:
+    """
+    Generate the next invoice number in the form:
+    GN-YYYY-MM-INVOICE-1234
+    Where 1234 is a non-repeating random 4-digit number.
+    """
+
+    # --- Load existing invoice numbers so we don't repeat ---
+    existing = set()
+    if INVOICES_CSV.exists():
+        with INVOICES_CSV.open("r", encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                inv = row.get("invoice_number", "")
+                if inv: existing.add(inv)
+
+# --- Build date string (with slashes for display) ---
+    date_str = datetime.now().strftime("%Y/%m/%d"_)
+
+# --- Try random numbers until one isn't used ---
+    while True:
+        rand = random.randint(0, 9999)
+        rand_str = f"{rand:04d}"
+        candidate = f"GN-{date_str}-INVOICE-{rand_str}"
+        if candidate not in existing:
+            return candidate
+
+def prompt(text: str, default: str | None = None) -> str:
+    """Input helper with optional default."""
+    if default is not None and default != "":
+        full = f"{text} [{default}]: "
+    else:
+        full = f"{text}: "
+    ans = input(full).strip()
+    if ans == "" and default is not None:
+        return default
+    return ans
+
+
+def prompt_float(text: str, default: float = 0.0) -> float:
+    """Input helper for money fields."""
+    while True:
+        raw = prompt(text, f"{default:.2f}")
+        try:
+            return float(raw)
+        except ValueError:
+            print("Please enter a valid number (e.g. 125 or 125.00).")
+
+
+def save_invoice(row: dict) -> None:
+    """Append a single invoice row to invoices.csv."""
+    file_exists = INVOICES_CSV.exists()
+    with INVOICES_CSV.open("a", newline="", encoding="utf-8") as f:
+        fieldnames = [
+            "invoice_number",
+            "date",
+            "customer_name",
+            "phone",
+            "email",
+            "vehicle",
+            "job_description",
+            "labor_amount",
+            "parts_amount",
+            "tax_rate_percent",
+            "tax_amount",
+            "subtotal",
+            "total",
+            "status",
+        ]
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        if not file_exists:
+            writer.writeheader()
+        writer.writerow(row)
+
+
+def generate_pdf(row: dict, pdf_path: Path) -> None:
+    """Create a clean, branded PDF invoice."""
+    if not REPORTLAB_AVAILABLE:
+        print(
+            "\n[!] PDF library 'reportlab' is not installed. "
+            "Run 'pip3 install reportlab' to enable PDF generation."
+        )
+        return
+
+    c = canvas.Canvas(str(pdf_path), pagesize=letter)
+    width, height = letter
+
+    # Colors
+    BRAND = colors.HexColor("#0B7285")      # teal/blue accent
+    DARK = colors.HexColor("#333333")
+    LIGHT = colors.HexColor("#F5F5F5")
+
+    # Margins
+    left = 50
+    right = width - 50
+    top = height - 50
+
+    # ==== HEADER BAR ====
+    header_height = 70
+    c.setFillColor(BRAND)
+    c.rect(0, height - header_height, width, header_height, fill=1, stroke=0)
+
+    # "Logo" / business name (text-based logo)
+    c.setFillColor(colors.white)
+    c.setFont("Helvetica-Bold", 18)
+    c.drawString(left, height - 45, BUSINESS_NAME)
+
+    c.setFont("Helvetica", 9)
+    contact_bits = []
+    if OWNER_NAME:
+        contact_bits.append(OWNER_NAME)
+    if PHONE:
+        contact_bits.append(f"Phone: {PHONE}")
+    if EMAIL:
+        contact_bits.append(f"Email: {EMAIL}")
+    if contact_bits:
+        c.drawString(left, height - 60, " | ".join(contact_bits))
+
+    # Invoice meta top-right
+    c.setFont("Helvetica-Bold", 12)
+    c.drawRightString(right, height - 40, "INVOICE")
+    c.setFont("Helvetica", 9)
+    c.drawRightString(right, height - 55, f"Invoice #: {row['invoice_number']}")
+    c.drawRightString(right, height - 68, f"Date: {row['date']}")
+    c.drawRightString(right, height - 81, f"Status: {row['status']}")
+
+    # Move starting y below header
+    y = height - header_height - 30
+
+    # ==== BILL TO / VEHICLE BOX ====
+    c.setFillColor(LIGHT)
+    c.setStrokeColor(colors.lightgrey)
+    box_height = 90
+    c.rect(left - 5, y - box_height + 10, right - left + 10, box_height, fill=1, stroke=1)
+
+    c.setFillColor(DARK)
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(left, y, "Bill To")
+    c.setFont("Helvetica", 9)
+    y -= 14
+    c.drawString(left, y, row["customer_name"] or "")
+    y -= 12
+    if row["phone"]:
+        c.drawString(left, y, f"Phone: {row['phone']}")
+        y -= 12
+    if row["email"]:
+        c.drawString(left, y, f"Email: {row['email']}")
+        y -= 12
+
+    # Vehicle on right side of same box
+    vy = height - header_height - 40
+    c.setFont("Helvetica-Bold", 10)
+    c.drawRightString(right, vy, "Vehicle")
+    c.setFont("Helvetica", 9)
+    vy -= 14
+    c.drawRightString(right, vy, row["vehicle"] or "")
+
+    y = y - 20  # leave space below box
+
+    # ==== WORK PERFORMED / NOTES ====
+    c.setFont("Helvetica-Bold", 10)
+    c.drawString(left, y, "Work Performed / Notes")
+    y -= 14
+
+    c.setFont("Helvetica", 9)
+    desc = row["job_description"].splitlines() or [""]
+    max_width = right - left
+
+    for line in desc:
+        words = line.split()
+        current = ""
+        for word in words:
+            test = (current + " " + word).strip()
+            if c.stringWidth(test, "Helvetica", 9) > max_width:
+                c.drawString(left, y, current)
+                y -= 12
+                current = word
+            else:
+                current = test
+        if current:
+            c.drawString(left, y, current)
+            y -= 12
+        y -= 2
+
+    y -= 10
+
+    # ==== CHARGES TABLE ====
+    # Convert numeric strings
+    labor = float(row.get("labor_amount", "0") or 0)
+    parts = float(row.get("parts_amount", "0") or 0)
+    tax_rate = float(row.get("tax_rate_percent", "0") or 0)
+    tax_amt = float(row.get("tax_amount", "0") or 0)
+    subtotal = float(row.get("subtotal", "0") or 0)
+    total = float(row.get("total", "0") or 0)
+
+    table_left = left
+    table_right = right - 40
+
+    # Header row
+    c.setFillColor(LIGHT)
+    c.setStrokeColor(colors.lightgrey)
+    row_height = 18
+    c.rect(table_left - 5, y - row_height + 4, table_right - table_left + 10, row_height, fill=1, stroke=1)
+
+    c.setFillColor(DARK)
+    c.setFont("Helvetica-Bold", 9)
+    c.drawString(table_left, y, "Description")
+    c.drawRightString(table_right, y, "Amount")
+    y -= row_height
+
+    c.setFont("Helvetica", 9)
+    def line(label: str, amount: float, bold: bool = False):
+        nonlocal y
+        if bold:
+            c.setFont("Helvetica-Bold", 9)
+        else:
+            c.setFont("Helvetica", 9)
+        c.drawString(table_left, y, label)
+        c.drawRightString(table_right, y, f"${amount:,.2f}")
+        y -= 14
+
+    line("Labor", labor)
+    line("Parts", parts)
+    line(f"Tax ({tax_rate:.2f}% on parts)", tax_amt)
+    line("Subtotal", subtotal)
+
+    y -= 6
+    # TOTAL row with highlight
+    c.setFillColor(LIGHT)
+    c.rect(table_left - 5, y - row_height + 4, table_right - table_left + 10, row_height, fill=1, stroke=1)
+    c.setFillColor(DARK)
+    line("TOTAL DUE", total, bold=True)
+
+    # ==== FOOTER ====
+    c.setFont("Helvetica-Oblique", 8)
+    c.setFillColor(DARK)
+    c.drawString(
+        left,
+        40,
+        "Thank you for your business! Keep this invoice for your records."
+    )
+
+    c.showPage()
+    c.save()
+
+def main() -> None:
+    ensure_dirs()
+
+    # Read defaults passed from GN via environment variables
+    default_customer_name = os.getenv("GN_CUSTOMER_NAME", "")
+    default_phone = os.getenv("GN_CUSTOMER_PHONE", "")
+    default_email = os.getenv("GN_CUSTOMER_EMAIL", "")
+    default_vehicle = os.getenv("GN_CUSTOMER_VEHICLE", "")
+
+    invoice_number = next_invoice_number()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    print("=" * 60)
+    print(f"{BUSINESS_NAME}")
+    print("NEW INVOICE CREATOR")
+    print("=" * 60)
+    print(f"Invoice #: {invoice_number}")
+    print(f"Date     : {today_str}")
+    print()
+
+    invoice_number = next_invoice_number()
+    today_str = datetime.now().strftime("%Y-%m-%d")
+
+    print("=" * 60)
+    print(f"{BUSINESS_NAME}")
+    print("NEW INVOICE CREATOR")
+    print("=" * 60)
+    print(f"Invoice #: {invoice_number}")
+    print(f"Date     : {today_str}")
+    print()
+
+    customer_name = prompt("Customer name", default_customer_name or None)
+    phone = prompt("Phone (optional)", default_phone)
+    email = prompt("Email (optional)", default_email)
+    vehicle = prompt("Vehicle (year/make/model)", default_vehicle or None)
+    job_description = prompt("Work performed / notes")
+
+    print()
+    print("=== CHARGES ===")
+    labor_amount = prompt_float("Labor amount (not taxed)", 0.0)
+    parts_amount = prompt_float("Parts amount (taxable)", 0.0)
+    tax_rate_percent = prompt_float("Tax rate on parts (%)", 7.0)
+
+    tax_amount = round(parts_amount * (tax_rate_percent / 100.0), 2)
+    subtotal = round(labor_amount + parts_amount, 2)
+    total = round(subtotal + tax_amount, 2)
+
+    print()
+    paid_raw = prompt("Is this invoice PAID? [y/N]", "n").lower()
+    status = "PAID" if paid_raw in ("y", "yes") else "DUE"
+
+    # ---- Summary Preview ----
+    print("\n" + "-" * 60)
+    print("INVOICE PREVIEW")
+    print("-" * 60)
+    print(f"Invoice #: {invoice_number}")
+    print(f"Date     : {today_str}")
+    print(f"Customer : {customer_name}")
+    if phone:
+        print(f"Phone    : {phone}")
+    if email:
+        print(f"Email    : {email}")
+    print(f"Vehicle  : {vehicle}")
+    print(f"Status   : {status}")
+    print()
+    print("Work Performed / Notes:")
+    print(job_description)
+    print()
+    print(f"Labor            : ${labor_amount:,.2f}")
+    print(f"Parts            : ${parts_amount:,.2f}")
+    print(f"Tax rate (parts) : {tax_rate_percent:.2f}%")
+    print(f"Tax amount       : ${tax_amount:,.2f}")
+    print(f"Subtotal         : ${subtotal:,.2f}")
+    print(f"TOTAL DUE        : ${total:,.2f}")
+    print("-" * 60)
+
+    confirm = prompt("Save this invoice to history and PDF? [Y/n]", "y").lower()
+    if confirm not in ("y", "yes", ""):
+        print("\nInvoice NOT saved.")
+        input("\nPress Enter to return to Garage...")
+        return
+
+    row = {
+        "invoice_number": invoice_number,
+        "date": today_str,
+        "customer_name": customer_name,
+        "phone": phone,
+        "email": email,
+        "vehicle": vehicle,
+        "job_description": job_description,
+        "labor_amount": f"{labor_amount:.2f}",
+        "parts_amount": f"{parts_amount:.2f}",
+        "tax_rate_percent": f"{tax_rate_percent:.2f}",
+        "tax_amount": f"{tax_amount:.2f}",
+        "subtotal": f"{subtotal:.2f}",
+        "total": f"{total:.2f}",
+        "status": status,
+    }
+
+    save_invoice(row)
+
+    pdf_path = OUTGOING_DIR / f"{invoice_number}.pdf"
+    generate_pdf(row, pdf_path)
+
+    print("\nInvoice saved successfully!")
+    print(f"Invoice #: {invoice_number}")
+    print(f"CSV file: {INVOICES_CSV}")
+    print(f"PDF file: {pdf_path}")
+    input("\nPress Enter to return to Garage...")
+
+
+if __name__ == "__main__":
+    main()
